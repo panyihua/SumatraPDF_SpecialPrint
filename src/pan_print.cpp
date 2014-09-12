@@ -21,7 +21,7 @@ HANDLE pan_PrintMutex;
 static PRINTER_INFO_2 gPrinterInfo[PNUM];
 static LPDEVMODE gpDevMode[PNUM];
 static int gIsReady[PNUM];
-static int gIsPrintting;
+static int gIsPrinting;
 void  pan_OnPrint(WindowInfo *win);
 static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
 {
@@ -45,7 +45,12 @@ static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
 
 	return str::Format(L"%s x %s %s", strWidth, strHeight, isMetric ? L"cm" : L"in");
 }
-
+struct DiskPrinterInfo
+{
+	WCHAR DriverName[200];
+	WCHAR PrinterName[200];
+	WCHAR PortName[200];
+};
 class AbortCookieManager {
 	CRITICAL_SECTION cookieAccess;
 public:
@@ -110,6 +115,116 @@ struct PrintData {
 		delete engine;
 	}
 };
+
+class pan_Printer
+{
+public:
+	pan_Printer()
+	{
+		isReady = 0;
+		printerInfo.pDriverName = NULL;
+		printerInfo.pPrinterName = NULL;
+		printerInfo.pPortName = NULL;
+		pDevMode = NULL;
+		filePath = NULL;
+	}
+	~pan_Printer()
+	{
+		free(printerInfo.pDriverName);
+		free(printerInfo.pPrinterName);
+		free(printerInfo.pPortName);
+		free(pDevMode);
+		free(filePath);
+	}
+	int loadPrinterFromPd(PRINTDLGEX & pd)
+	{
+		LPDEVMODE devMode = (LPDEVMODE)GlobalLock(pd.hDevMode);
+		LPDEVNAMES devNames = (LPDEVNAMES)GlobalLock(pd.hDevNames);
+
+		if (!devMode || !devNames) 
+			return 0;
+		
+		free(this->pDevMode);
+		this->pDevMode = (LPDEVMODE)memdup(devMode,devMode->dmSize + devMode->dmDriverExtra);
+
+		free(printerInfo.pDriverName);
+		free(printerInfo.pPrinterName);
+		free(printerInfo.pPortName);
+		printerInfo.pDriverName = str::Dup((LPWSTR)devNames + devNames->wDriverOffset);
+		printerInfo.pPrinterName = str::Dup((LPWSTR)devNames + devNames->wDeviceOffset);
+		printerInfo.pPortName = str::Dup((LPWSTR)devNames + devNames->wOutputOffset);
+		GlobalUnlock(pd.hDevMode);
+		GlobalUnlock(pd.hDevNames);
+		GlobalFree(pd.hDevNames);
+		GlobalFree(pd.hDevMode);
+		return 1;
+	}
+	int loadPrinterFromFile()
+	{
+		DiskPrinterInfo diskPrinterInfo;
+		WORD nDevMode;
+		FILE *f;
+		
+		_wfopen_s(&f,filePath,L"rb");
+		if(!f)
+			return 0;
+		fread(&diskPrinterInfo,sizeof(diskPrinterInfo),1,f);
+		fread(&nDevMode,sizeof(nDevMode),1,f);
+		free(pDevMode);
+		pDevMode =(LPDEVMODE) malloc(nDevMode);
+		fread(pDevMode,nDevMode,1,f);
+
+		free(printerInfo.pDriverName);
+		free(printerInfo.pPrinterName);
+		free(printerInfo.pPortName);
+		printerInfo.pDriverName =str::Dup(diskPrinterInfo.DriverName);
+		printerInfo.pPrinterName = str::Dup(diskPrinterInfo.PrinterName);
+		printerInfo.pPortName = str::Dup(diskPrinterInfo.PortName);
+		fclose(f);
+		return 1;
+	}
+
+	int savePrinterToFile()
+	{
+		FILE *f;
+		DiskPrinterInfo diskPrinterInfo;
+		_wfopen_s(&f,filePath,L"wb");
+		if(!f)
+			return 0;
+
+		wcscpy_s(diskPrinterInfo.DriverName,printerInfo.pDriverName);
+		wcscpy_s(diskPrinterInfo.PrinterName,printerInfo.pPrinterName);
+		wcscpy_s(diskPrinterInfo.PortName,printerInfo.pPortName);
+		fwrite(&diskPrinterInfo,sizeof(DiskPrinterInfo),1,f);
+
+		WORD nDevMode = pDevMode->dmSize + pDevMode->dmDriverExtra;
+		fwrite(&nDevMode,sizeof(nDevMode),1,f);
+		fwrite(pDevMode,nDevMode,1,f);
+		fclose(f);
+		return 1;
+	}
+	void setFilePath(WCHAR * path)
+	{
+		free(filePath);
+		filePath = str::Dup(path);
+	}
+
+
+	PRINTER_INFO_2 printerInfo;
+	LPDEVMODE pDevMode;
+
+	
+	static int isPrinting;
+	int isReady;
+	WCHAR * filePath;
+
+};
+
+pan_Printer printers[PNUM];
+
+
+int pan_Printer::isPrinting(0);
+
 
 class ScopeHDC {
 	HDC hdc;
@@ -469,6 +584,7 @@ class PrinttingControlThreadData
 public:
 	WindowInfo *win;
 	PrintData **data;
+	int len;
 	~PrinttingControlThreadData()
 	{
 		int i = 3;
@@ -478,13 +594,14 @@ public:
 };
 static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 {
-	gIsPrintting = 1;
+	gIsPrinting = 1;
 	PrinttingControlThreadData *treadData = (PrinttingControlThreadData*) inData;
 	WindowInfo *win = treadData->win;
 	PrintData **data = treadData->data;
+	int len = treadData->len;
 	pan_PrintMutex = CreateSemaphore(NULL,1,1,NULL);
 	int i;
-	for (i = 0;i<PNUM;i++)
+	for (i = 0;i<len;i++)
 	{
 		WaitForSingleObject(pan_PrintMutex,INFINITE);
 		if(!gIsReady[i] || data[i] ==NULL)
@@ -499,7 +616,7 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	delete inData;              
 	ReleaseSemaphore(pan_PrintMutex,1,NULL);
 	CloseHandle(pan_PrintMutex);
-	gIsPrintting = 0;
+	gIsPrinting = 0;
 	return 0;
 }
 
@@ -854,14 +971,9 @@ PrintData * CreatePrintData(PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode ,PRI
 	return data;
 }
 
-struct DiskPrinterINFO
-{
-	WCHAR DriverName[200];
-	WCHAR PrinterName[200];
-	WCHAR PortName[200];
-};
 
-int ShowPrintSettingDlg(PRINTDLGEX& pd,WindowInfo* win)
+
+static int GetPdFromUser(PRINTDLGEX& pd,WindowInfo* win)
 {
     ZeroMemory(&pd, sizeof(PRINTDLGEX));
     pd.lStructSize = sizeof(PRINTDLGEX);
@@ -905,11 +1017,11 @@ int ShowPrintSettingDlg(PRINTDLGEX& pd,WindowInfo* win)
 	return 0;
 }
 
-void SavePrinterInfo(int type,PRINTDLGEX& pd,HWND hwnd)
+static void TransformAndSavePd(int type,PRINTDLGEX& pd,HWND hwnd)   //功能可细分
 {
 
 	PRINTER_INFO_2 printerInfo = { 0 };
-	DiskPrinterINFO diskP;
+	DiskPrinterInfo diskP;
 	LPDEVMODE devMode = (LPDEVMODE)GlobalLock(pd.hDevMode);
 	LPDEVNAMES devNames = (LPDEVNAMES)GlobalLock(pd.hDevNames);
 	if (!devMode) {
@@ -932,7 +1044,7 @@ void SavePrinterInfo(int type,PRINTDLGEX& pd,HWND hwnd)
 	fopen_s(&f,filePath,"wb");
 
 	WORD nDevMode = devMode->dmSize + devMode->dmDriverExtra;
-	fwrite(&diskP,sizeof(DiskPrinterINFO),1,f);
+	fwrite(&diskP,sizeof(DiskPrinterInfo),1,f);
 	fwrite(&nDevMode,sizeof(nDevMode),1,f);
 	fwrite(devMode,devMode->dmSize + devMode->dmDriverExtra,1,f);
 
@@ -946,7 +1058,7 @@ void SavePrinterInfo(int type,PRINTDLGEX& pd,HWND hwnd)
 
 int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
 {
-	DiskPrinterINFO diskP;
+	DiskPrinterInfo diskP;
 	WORD nDevMode;
 
 	FILE *f;
@@ -974,7 +1086,7 @@ int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
 
 
 
-void InitPrintDlg(HWND hDlg,WindowInfo* win)
+void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gpDevMode gIsReady gRangesc
 {
 	int i;
 	WCHAR text[50] = {0};
@@ -1033,8 +1145,8 @@ static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
 		case IDC_BUTTON3:
 			{
 				PRINTDLGEX pd;
-				ShowPrintSettingDlg(pd,win);
-				SavePrinterInfo(3,pd,hDlg);
+				GetPdFromUser(pd,win);
+				TransformAndSavePd(3,pd,hDlg);
 				InitPrintDlg( hDlg,win);
 				return TRUE;
 			}
@@ -1042,16 +1154,16 @@ static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
 		case IDC_BUTTON4:
 			{
 				PRINTDLGEX pd;
-				ShowPrintSettingDlg(pd,win);
-				SavePrinterInfo(4,pd,hDlg);
+				GetPdFromUser(pd,win);
+				TransformAndSavePd(4,pd,hDlg);
 				InitPrintDlg( hDlg,win);
 				return TRUE;
 			}
 		case IDC_BUTTON5:
 			{
 				PRINTDLGEX pd;
-				ShowPrintSettingDlg(pd,win);
-				SavePrinterInfo(5,pd,hDlg);
+				GetPdFromUser(pd,win);
+				TransformAndSavePd(5,pd,hDlg);
 				InitPrintDlg( hDlg,win);
 				return TRUE;
 			}
@@ -1079,7 +1191,7 @@ void DoPrint()
 
 void  pan_OnPrint(WindowInfo *win)
 {
-	if(gIsPrintting)
+	if(gIsPrinting)
 	{
 		MessageBoxW(win->hwndFrame,L"正在打印,请稍后再试",L"提示",0);
 		return ;
@@ -1131,6 +1243,7 @@ void  pan_OnPrint(WindowInfo *win)
 	threadData = new PrinttingControlThreadData();
 	threadData->win = win;
 	threadData->data = datas;
+	threadData->len = i;
 
 
 	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
