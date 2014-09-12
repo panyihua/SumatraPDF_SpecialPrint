@@ -1,0 +1,29 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+# SharpDevelop 4.3
+Project("{0E96FCFA-9DAC-4534-AC18-01A90C368873}") = "sumatrapdf-vc2010", "sumatrapdf-vc2010.vcxproj", "{9458F693-A9CC-4786-B79A-A2103EC71FA3}"
+EndProject
+Project("{0E96FCFA-9DAC-4534-AC18-01A90C368873}") = "Installer", "installer-vc2010.vcxproj", "{BC42DA91-3BE7-410E-8ACE-E5F42DEDF41B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release analyze|Win32 = Release analyze|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Debug|Win32.ActiveCfg = Debug|Win32
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Debug|Win32.Build.0 = Debug|Win32
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Release analyze|Win32.ActiveCfg = Release analyze|Win32
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Release analyze|Win32.Build.0 = Release analyze|Win32
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Release|Win32.ActiveCfg = Release|Win32
+		{9458F693-A9CC-4786-B79A-A2103EC71FA3}.Release|Win32.Build.0 = Release|Win32
+		{BC42DA91-3BE7-410E-8ACE-E5F42DEDF41B}.Debug|Win32.ActiveCfg = Debug|Win32
+		{BC42DA91-3BE7-410E-8ACE-E5F42DEDF41B}.Release analyze|Win32.ActiveCfg = Release analyze|Win32
+		{BC42DA91-3BE7-410E-8ACE-E5F42DEDF41B}.Release|Win32.ActiveCfg = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

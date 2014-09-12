@@ -1,0 +1,123 @@
+diff -rPu5 freetype2.orig\include\freetype\config\ftstdlib.h freetype2\include\freetype\config\ftstdlib.h
+--- freetype2.orig\include\freetype\config\ftstdlib.h	Sat Sep 29 09:42:15 2012
++++ freetype2\include\freetype\config\ftstdlib.h	Fri Aug 30 20:38:21 2013
+@@ -106,10 +106,16 @@
+ #define ft_fread    fread
+ #define ft_fseek    fseek
+ #define ft_ftell    ftell
+ #define ft_sprintf  sprintf
+ 
++/* cf. http://lists.gnu.org/archive/html/freetype/2006-09/msg00036.html */
++#ifdef _WIN32
++#undef ft_fopen
++#define ft_fopen    ft_fopen_win32
++#endif
++
+ 
+   /**********************************************************************/
+   /*                                                                    */
+   /*                             sorting                                */
+   /*                                                                    */
+diff -rPu5 freetype2.orig\include\freetype\ftsystem.h freetype2\include\freetype\ftsystem.h
+--- freetype2.orig\include\freetype\ftsystem.h	Sat Jun 26 09:18:37 2010
++++ freetype2\include\freetype\ftsystem.h	Fri Aug 30 20:38:21 2013
+@@ -337,10 +337,16 @@
+ 
+ 
+   /* */
+ 
+ 
++/* cf. http://lists.gnu.org/archive/html/freetype/2006-09/msg00036.html */
++#ifdef _WIN32
++FT_FILE* ft_fopen_win32(const char *fname, const char *mode);
++#endif
++
++
+ FT_END_HEADER
+ 
+ #endif /* __FTSYSTEM_H__ */
+ 
+ 
+diff -rPu5 freetype2.orig\src\base\ftsystem.c freetype2\src\base\ftsystem.c
+--- freetype2.orig\src\base\ftsystem.c	Tue May 28 23:00:03 2013
++++ freetype2\src\base\ftsystem.c	Fri Aug 30 20:38:21 2013
+@@ -315,6 +315,29 @@
+ #endif
+     ft_sfree( memory );
+   }
+ 
+ 
++/* cf. http://lists.gnu.org/archive/html/freetype/2006-09/msg00036.html */
++#ifdef _WIN32
++#include <windows.h>
++
++  FT_FILE* ft_fopen_win32(const char *fname, const char *mode)
++  {
++    // First try fopen, assuming nothing about character encodings.
++    FT_FILE *file = fopen(fname, mode);
++    if (!file)
++    {
++      // fopen failed. Assume the filename is UTF-8, convert to UTF-16, and try _wfopen.
++      WCHAR fnameW[MAX_PATH], modeW[8];
++      if (MultiByteToWideChar(CP_UTF8, 0, fname, -1, fnameW, _countof(fnameW)) &&
++          MultiByteToWideChar(CP_UTF8, 0, mode, -1, modeW, _countof(modeW)))
++      {
++        file = _wfopen(fnameW, modeW);
++      }
++    }
++    return file;
++  }
++#endif
++
++
+ /* END */
+diff -rPu5 freetype2.orig\src\cff\cf2ft.c freetype2\src\cff\cf2ft.c
+--- freetype2.orig\src\cff\cf2ft.c	Fri Jun 07 17:08:35 2013
++++ freetype2\src\cff\cf2ft.c	Tue Sep 03 20:31:32 2013
+@@ -497,11 +497,11 @@
+   FT_LOCAL_DEF( CF2_Int )
+   cf2_initGlobalRegionBuffer( CFF_Decoder*  decoder,
+                               CF2_UInt      idx,
+                               CF2_Buffer    buf )
+   {
+-    FT_ASSERT( decoder && decoder->globals );
++    FT_ASSERT( decoder && ( decoder->globals || decoder->num_globals == 0 ) );
+ 
+     FT_ZERO( buf );
+ 
+     idx += decoder->globals_bias;
+     if ( idx >= decoder->num_globals )
+@@ -570,11 +570,11 @@
+   FT_LOCAL_DEF( CF2_Int )
+   cf2_initLocalRegionBuffer( CFF_Decoder*  decoder,
+                              CF2_UInt      idx,
+                              CF2_Buffer    buf )
+   {
+-    FT_ASSERT( decoder && decoder->locals );
++    FT_ASSERT( decoder && ( decoder->locals || decoder->num_locals == 0 ) );
+ 
+     FT_ZERO( buf );
+ 
+     idx += decoder->locals_bias;
+     if ( idx >= decoder->num_locals )
+diff -rPu5 freetype2.orig\src\type1\t1parse.c freetype2\src\type1\t1parse.c
+--- freetype2.orig\src\type1\t1parse.c	Thu Jun 06 07:26:16 2013
++++ freetype2\src\type1\t1parse.c	Fri Sep 13 15:21:26 2013
+@@ -402,14 +402,16 @@
+ 
+       /* according to the Type1 spec, the first cipher byte must not be  */
+       /* an ASCII whitespace character code (blank, tab, carriage return */
+       /* or line feed).  We have seen Type 1 fonts with two line feed    */
+       /* characters...  So skip now all whitespace character codes.      */
++      /* SumatraPDF: stop at \r if it's not used for EOL - cf. https://code.google.com/p/sumatrapdf/issues/detail?id=2408 */
++      c = !memchr(cur, '\n', limit - cur) || memchr(cur, '\n', limit - cur) > memchr(cur, '\r', limit - cur);
+       while ( cur < limit       &&
+               ( *cur == ' '  ||
+                 *cur == '\t' ||
+-                *cur == '\r' ||
++                ( c && *cur == '\r' ) ||
+                 *cur == '\n' ) )
+         ++cur;
+       if ( cur >= limit )
+       {
+         FT_ERROR(( "T1_Get_Private_Dict:"
