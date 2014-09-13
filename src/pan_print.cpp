@@ -220,6 +220,56 @@ public:
 
 };
 
+class pan_PageRange
+{
+	char page[1000];
+	int len;
+	Vec<PRINTPAGERANGE> ppr;
+	pan_PageRange()
+	{
+		memset(page,0,sizeof(page));
+		len =0;
+	}
+	void set(int p,int val)
+	{
+		page[p>>3] |=  val << (7&p);
+	}
+	int get(int p)
+	{
+		return page[p>>3] & 1<<(7&p);
+	}
+	void format()
+	{
+		int i;
+		int begin,end;
+		int b;
+		PRINTPAGERANGE pr;
+		b = 1;
+		for (i=0;i<len;i++)
+		{
+			if(get(i) && b)
+			{
+				begin = i;
+				b = 0;
+			}
+			if(!get(i) && !b)
+			{
+				end = i -1;
+				b = 1;
+				pr.nFromPage = begin;
+				pr.nToPage = end;
+				ppr.Append(pr);
+			}
+		}
+		if(get(i-1))
+		{
+			pr.nFromPage = begin;
+			pr.nToPage = i - 1;
+			ppr.Append(pr);
+		}
+	}
+};
+
 pan_Printer printers[PNUM];
 
 
@@ -783,6 +833,8 @@ public:
 
 static RangesContext gRangesc;
 
+
+
 void  pan_OnMenuPrint(WindowInfo *win, bool waitForCompletion)
 {
     // we remember some printer settings per process
@@ -1087,7 +1139,7 @@ int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
 
 
 void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gpDevMode gIsReady gRangesc
-{
+{                                            //函数功能可细分 dlginit与prepare data
 	int i;
 	WCHAR text[50] = {0};
 	for (i=0;i<PNUM;i++)
