@@ -220,11 +220,15 @@ public:
 
 };
 
+pan_Printer printer[PNUM];
+
 class pan_PageRange
 {
 	char page[1000];
 	int len;
+public:
 	Vec<PRINTPAGERANGE> ppr;
+	char * rangeName;
 	pan_PageRange()
 	{
 		memset(page,0,sizeof(page));
@@ -268,6 +272,32 @@ class pan_PageRange
 			ppr.Append(pr);
 		}
 	}
+};
+
+struct PageSize
+{
+	double a;
+	double b;
+};
+
+class pan_PageContext
+{
+	Vec<pan_PageRange> context;
+	Vec<PageSize> pageSizes;
+	void addPageSize(PageSize ps)
+	{
+		pageSizes.Append(ps);
+	}
+	int isSizeOf(int num)
+	{
+
+	}
+	static void generate()
+	{
+		int i;
+
+	}
+
 };
 
 pan_Printer printers[PNUM];
