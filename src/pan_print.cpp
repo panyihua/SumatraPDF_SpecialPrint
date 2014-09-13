@@ -115,6 +115,7 @@ struct PrintData {
 		delete engine;
 	}
 };
+class pan_PageRange;
 
 class pan_Printer
 {
@@ -217,10 +218,11 @@ public:
 	static int isPrinting;
 	int isReady;
 	WCHAR * filePath;
+	pan_PageRange *pageRange;
 
 };
 
-pan_Printer printer[PNUM];
+
 
 class pan_PageRange
 {
@@ -280,10 +282,45 @@ struct PageSize
 	double b;
 };
 
-class pan_PageContext
+class pan_PrintContext
 {
-	Vec<pan_PageRange> context;
+public:
+	Vec<pan_PageRange*> pageRanges;
 	Vec<PageSize> pageSizes;
+	Vec<pan_Printer*> printers;
+	pan_PrintContext()
+	{
+		int i;
+		pan_Printer *printer;
+		PageSize ps;
+		for (i = 0;i<PNUM;i++)
+		{
+			printer = new pan_Printer();
+			printers.Append(printer);
+		}
+
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+	}
+	~pan_PrintContext()
+	{
+		int i;
+		for (i = 0;i<pageRanges.Size();i++)
+		{
+			delete pageRanges[i];
+		}
+		for (i = 0;i<printers.Size();i++)
+		{
+			delete printers[i];
+		}
+	}
 	void addPageSize(PageSize ps)
 	{
 		pageSizes.Append(ps);
@@ -292,7 +329,7 @@ class pan_PageContext
 	{
 
 	}
-	static void generate()
+	static void generatePageRange()
 	{
 		int i;
 
