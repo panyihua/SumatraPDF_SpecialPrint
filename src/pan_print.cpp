@@ -312,7 +312,7 @@ public:
 	}
 	~pan_PrintContext()
 	{
-		int i;
+		unsigned int i;
 		for (i = 0;i<pageRanges.Size();i++)
 		{
 			delete pageRanges[i];
@@ -332,7 +332,7 @@ public:
 	}
 	static void generatePageRange()
 	{
-		int i;
+		//int i;
 
 	}
 
@@ -755,13 +755,7 @@ static HGLOBAL GlobalMemDup(const void *data, size_t len)
 	return hGlobal;
 }
 
-class pan_PrintContext
-{
-	pan_PrintContext()
-	{
-		int i;
-	}
-};
+
 
 class RangesContext
 {
