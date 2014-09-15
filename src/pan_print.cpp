@@ -116,6 +116,7 @@ struct PrintData {
 		delete engine;
 	}
 };
+class pan_PageRange;
 
 class pan_Printer
 {
@@ -218,6 +219,122 @@ public:
 	static int isPrinting;
 	int isReady;
 	WCHAR * filePath;
+	pan_PageRange *pageRange;
+
+};
+
+
+
+class pan_PageRange
+{
+	char page[1000];
+	int len;
+public:
+	Vec<PRINTPAGERANGE> ppr;
+	char * rangeName;
+	pan_PageRange()
+	{
+		memset(page,0,sizeof(page));
+		len =0;
+	}
+	void set(int p,int val)
+	{
+		page[p>>3] |=  val << (7&p);
+	}
+	int get(int p)
+	{
+		return page[p>>3] & 1<<(7&p);
+	}
+	void format()
+	{
+		int i;
+		int begin,end;
+		int b;
+		PRINTPAGERANGE pr;
+		b = 1;
+		for (i=0;i<len;i++)
+		{
+			if(get(i) && b)
+			{
+				begin = i;
+				b = 0;
+			}
+			if(!get(i) && !b)
+			{
+				end = i -1;
+				b = 1;
+				pr.nFromPage = begin;
+				pr.nToPage = end;
+				ppr.Append(pr);
+			}
+		}
+		if(get(i-1))
+		{
+			pr.nFromPage = begin;
+			pr.nToPage = i - 1;
+			ppr.Append(pr);
+		}
+	}
+};
+
+struct PageSize
+{
+	double a;
+	double b;
+};
+
+class pan_PrintContext
+{
+public:
+	Vec<pan_PageRange*> pageRanges;
+	Vec<PageSize> pageSizes;
+	Vec<pan_Printer*> printers;
+	pan_PrintContext()
+	{
+		int i;
+		pan_Printer *printer;
+		PageSize ps;
+		for (i = 0;i<PNUM;i++)
+		{
+			printer = new pan_Printer();
+			printers.Append(printer);
+		}
+
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+		ps.a = 1;
+		ps.b = 2;
+		pageSizes.Append(ps);
+	}
+	~pan_PrintContext()
+	{
+		int i;
+		for (i = 0;i<pageRanges.Size();i++)
+		{
+			delete pageRanges[i];
+		}
+		for (i = 0;i<printers.Size();i++)
+		{
+			delete printers[i];
+		}
+	}
+	void addPageSize(PageSize ps)
+	{
+		pageSizes.Append(ps);
+	}
+	int isSizeOf(int num)
+	{
+
+	}
+	static void generatePageRange()
+	{
+		int i;
+
+	}
 
 };
 
@@ -786,6 +903,8 @@ public:
 
 static RangesContext gRangesc;
 
+
+
 void  pan_OnMenuPrint(WindowInfo *win, bool waitForCompletion)
 {
     // we remember some printer settings per process
@@ -1090,7 +1209,7 @@ int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
 
 
 void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gpDevMode gIsReady gRangesc
-{
+{                                            //函数功能可细分 dlginit与prepare data
 	int i;
 	WCHAR text[50] = {0};
 	for (i=0;i<PNUM;i++)
