@@ -371,7 +371,7 @@ public:
 			pageRange = new pan_PageRange(dm);
 			pageRanges.Append(pageRange);
 		}
-		
+
 		
 	}
 	~pan_PrintContext()
@@ -390,7 +390,7 @@ public:
 	{
 		pageSizes.Append(ps);
 	}
-	void generatePageRanges()
+	void generatePageRange()
 	{
 		unsigned int i;
 		for (i = 0;i < pageRanges.Size();i++)
@@ -401,6 +401,7 @@ public:
 		{
 			pageRanges[pageType(i)]->set(i,1);
 		}
+
 	}
 	void match()
 	{
@@ -1332,8 +1333,8 @@ void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gp
 void initPrintContext(HWND hDlg,WindowInfo *win)
 {
 	printContext.init(win,hDlg);
+	printContext.generatePageRange();
 	printContext.match();
-	printContext.generatePageRanges();
 }
 
 static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
