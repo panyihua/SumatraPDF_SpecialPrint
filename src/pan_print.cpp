@@ -46,6 +46,29 @@ static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
 
 	return str::Format(L"%s x %s %s", strWidth, strHeight, isMetric ? L"cm" : L"in");
 }
+static WCHAR *getPageSize(BaseEngine *engine, int pageNo, int rotation)
+{
+	RectD mediabox = engine->PageMediabox(pageNo);
+	SizeD size = engine->Transform(mediabox, pageNo, 1.0, rotation).Size();
+
+	WCHAR unitSystem[2];
+	GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IMEASURE, unitSystem, dimof(unitSystem));
+	bool isMetric = unitSystem[0] == '0';
+	double unitsPerInch = isMetric ? 2.54 : 1.0;
+
+	double width = size.dx * unitsPerInch / engine->GetFileDPI();
+	double height = size.dy * unitsPerInch / engine->GetFileDPI();
+	if (((int)(width * 100)) % 100 == 99)
+		width += 0.01;
+	if (((int)(height * 100)) % 100 == 99)
+		height += 0.01;
+
+	ScopedMem<WCHAR> strWidth(str::FormatFloatWithThousandSep(width));
+	ScopedMem<WCHAR> strHeight(str::FormatFloatWithThousandSep(height));
+
+	return str::Format(L"%s %s", strWidth, strHeight);
+}
+
 struct DiskPrinterInfo
 {
 	WCHAR DriverName[200];
@@ -216,7 +239,6 @@ public:
 	LPDEVMODE pDevMode;
 
 	
-	static int isPrinting;
 	int isReady;
 	WCHAR * filePath;
 	pan_PageRange *pageRange;
@@ -285,12 +307,18 @@ struct PageSize
 
 class pan_PrintContext
 {
+	WindowInfo * win;
+	DisplayModel *dm;
+	HWND hDlg;
 public:
 	Vec<pan_PageRange*> pageRanges;
 	Vec<PageSize> pageSizes;
 	Vec<pan_Printer*> printers;
+	int isPrinting;
 	pan_PrintContext()
 	{
+		dm = NULL;
+		isPrinting = 0;
 		int i;
 		pan_Printer *printer;
 		PageSize ps;
@@ -299,16 +327,21 @@ public:
 			printer = new pan_Printer();
 			printers.Append(printer);
 		}
-
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 29.7;
+		ps.b = 42;
 		pageSizes.Append(ps);
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 21;
+		ps.b = 29.7;
 		pageSizes.Append(ps);
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 14.8;
+		ps.b = 21;
 		pageSizes.Append(ps);
+	}
+	void init(WindowInfo * win,HWND hDlg)
+	{
+		this->win = win;
+		this->dm = win->dm;
+		this->hDlg = hDlg;
 	}
 	~pan_PrintContext()
 	{
@@ -326,22 +359,44 @@ public:
 	{
 		pageSizes.Append(ps);
 	}
-	int isSizeOf(int num)
+	int pageType(int num)
 	{
+		WCHAR * sizeStr;
+		double a,b;
+		double jd = 2;
+		int i;
+		sizeStr = getPageSize(dm->engine,num,dm->Rotation());
+		swscanf_s(sizeStr,L"%lf%lf",&a,&b,wcslen(str));
 
+		for (i=0;i<pageSizes.Size();i++)
+		{
+			if(abs(a - pageSizes[i].a) < jd && abs(b - pageSizes[i].b) < jd)
+				return i+1;
+		}
+		return 0;
 	}
-	static void generatePageRange()
+	void generatePageRange()
 	{
-		//int i;
-
+		int i;
+		for (i = 0;i < dm->PageCount(); i++)
+		{
+			pageRanges[pageType(i)]->set(i,1);
+		}
+		
 	}
-
+	void match()
+	{
+		int i;
+		for (i = 0; i < printers.Size(); i++)
+		{
+			printers[i]->pageRange = pageRanges[i];
+		}
+	}
 };
 
-pan_Printer printers[PNUM];
 
 
-int pan_Printer::isPrinting(0);
+static pan_PrintContext context;
 
 
 class ScopeHDC {
@@ -1339,6 +1394,8 @@ void  pan_OnPrint(WindowInfo *win)
             return;
     }
     AbortPrinting(win);
+
+
 
 	int i;
 	PrintData ** datas;
