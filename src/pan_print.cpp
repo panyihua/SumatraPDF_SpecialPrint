@@ -16,8 +16,9 @@
 #include "resource1.h"
 
 
-HANDLE pan_PrintMutex;
+static HANDLE pan_PrintMutex;
 #define PNUM 3
+#define MAXPAGERANGES 50
 static PRINTER_INFO_2 gPrinterInfo[PNUM];
 static LPDEVMODE gpDevMode[PNUM];
 static int gIsReady[PNUM];
@@ -637,7 +638,13 @@ static HGLOBAL GlobalMemDup(const void *data, size_t len)
 	return hGlobal;
 }
 
-enum { MAXPAGERANGES = 50 };
+class pan_PrintContext
+{
+	pan_PrintContext()
+	{
+		int i;
+	}
+};
 
 class RangesContext
 {
@@ -761,10 +768,6 @@ public:
 		
 		SendDlgItemMessage(hDlg,IDC_I4,WM_SETTEXT,NULL,(LPARAM)&text);
 		
-		
-
-
-
 		j = 0;
 		memset(text,0,sizeof(text));
 		for (i=0;i<rlen[j];i++)
