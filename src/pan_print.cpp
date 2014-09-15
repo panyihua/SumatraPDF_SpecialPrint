@@ -16,8 +16,9 @@
 #include "resource1.h"
 
 
-HANDLE pan_PrintMutex;
+static HANDLE pan_PrintMutex;
 #define PNUM 3
+#define MAXPAGERANGES 50
 static PRINTER_INFO_2 gPrinterInfo[PNUM];
 static LPDEVMODE gpDevMode[PNUM];
 static int gIsReady[PNUM];
@@ -45,6 +46,29 @@ static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
 
 	return str::Format(L"%s x %s %s", strWidth, strHeight, isMetric ? L"cm" : L"in");
 }
+static WCHAR *getPageSize(BaseEngine *engine, int pageNo, int rotation)
+{
+	RectD mediabox = engine->PageMediabox(pageNo);
+	SizeD size = engine->Transform(mediabox, pageNo, 1.0, rotation).Size();
+
+	WCHAR unitSystem[2];
+	GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IMEASURE, unitSystem, dimof(unitSystem));
+	bool isMetric = unitSystem[0] == '0';
+	double unitsPerInch = isMetric ? 2.54 : 1.0;
+
+	double width = size.dx * unitsPerInch / engine->GetFileDPI();
+	double height = size.dy * unitsPerInch / engine->GetFileDPI();
+	if (((int)(width * 100)) % 100 == 99)
+		width += 0.01;
+	if (((int)(height * 100)) % 100 == 99)
+		height += 0.01;
+
+	ScopedMem<WCHAR> strWidth(str::FormatFloatWithThousandSep(width));
+	ScopedMem<WCHAR> strHeight(str::FormatFloatWithThousandSep(height));
+
+	return str::Format(L"%s %s", strWidth, strHeight);
+}
+
 struct DiskPrinterInfo
 {
 	WCHAR DriverName[200];
@@ -207,7 +231,7 @@ public:
 	void setFilePath(WCHAR * path)
 	{
 		free(filePath);
-		filePath = str::Dup(path);
+		filePath = path;
 	}
 
 
@@ -215,7 +239,6 @@ public:
 	LPDEVMODE pDevMode;
 
 	
-	static int isPrinting;
 	int isReady;
 	WCHAR * filePath;
 	pan_PageRange *pageRange;
@@ -227,14 +250,30 @@ public:
 class pan_PageRange
 {
 	char page[1000];
-	int len;
+	DisplayModel * dm;
 public:
 	Vec<PRINTPAGERANGE> ppr;
 	char * rangeName;
-	pan_PageRange()
+	pan_PageRange(DisplayModel *dm)
 	{
 		memset(page,0,sizeof(page));
-		len =0;
+		this->dm = dm;
+	}
+	int isEmpty()
+	{
+		int i;
+		for (i = 0; i< 1000; i++)
+		{
+			if(page[i])
+			{
+				return 1;
+			}
+		}
+		return 0;
+	}
+	void clear()
+	{
+		memset(page,0,sizeof(page));
 	}
 	void set(int p,int val)
 	{
@@ -251,7 +290,7 @@ public:
 		int b;
 		PRINTPAGERANGE pr;
 		b = 1;
-		for (i=0;i<len;i++)
+		for (i=0;i<dm->PageCount();i++)
 		{
 			if(get(i) && b)
 			{
@@ -284,13 +323,26 @@ struct PageSize
 
 class pan_PrintContext
 {
+	WindowInfo * win;
+	DisplayModel *dm;
+	HWND hDlg;
 public:
 	Vec<pan_PageRange*> pageRanges;
 	Vec<PageSize> pageSizes;
 	Vec<pan_Printer*> printers;
+	int isPrinting;
 	pan_PrintContext()
 	{
-		int i;
+		win = NULL;
+		dm = NULL;
+		isPrinting = 0;		
+	}
+	void init(WindowInfo * win,HWND hDlg)
+	{
+		this->win = win;
+		this->dm = win->dm;
+		this->hDlg = hDlg;
+		unsigned int i;
 		pan_Printer *printer;
 		PageSize ps;
 		for (i = 0;i<PNUM;i++)
@@ -298,20 +350,33 @@ public:
 			printer = new pan_Printer();
 			printers.Append(printer);
 		}
+		for (i = 0;i < printers.Size(); i++)
+		{
+			printers[i]->setFilePath(str::Format(L"E:\\printer%d",i));
+			printers[i]->loadPrinterFromFile();
+		}
 
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 29.7;
+		ps.b = 42;
 		pageSizes.Append(ps);
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 21;
+		ps.b = 29.7;
 		pageSizes.Append(ps);
-		ps.a = 1;
-		ps.b = 2;
+		ps.a = 14.8;
+		ps.b = 21;
 		pageSizes.Append(ps);
+		pan_PageRange *pageRange;
+		for (i = 0; i < pageSizes.Size() + 1;i++)
+		{
+			pageRange = new pan_PageRange(dm);
+			pageRanges.Append(pageRange);
+		}
+
+		
 	}
 	~pan_PrintContext()
 	{
-		int i;
+		unsigned int i;
 		for (i = 0;i<pageRanges.Size();i++)
 		{
 			delete pageRanges[i];
@@ -325,22 +390,50 @@ public:
 	{
 		pageSizes.Append(ps);
 	}
-	int isSizeOf(int num)
+	void generatePageRange()
 	{
+		unsigned int i;
+		for (i = 0;i < pageRanges.Size();i++)
+		{
+			pageRanges[i]->clear();
+		}
+		for (i = 0;i < unsigned int (dm->PageCount()); i++)
+		{
+			pageRanges[pageType(i)]->set(i,1);
+		}
 
 	}
-	static void generatePageRange()
+	void match()
 	{
-		int i;
-
+		unsigned int i;
+		for (i = 0; i < pageRanges.Size(); i++)
+		{
+			printers[i]->pageRange = pageRanges[i];
+		}
 	}
+private:
+	int pageType(int num)   //range 函数依赖 type
+	{
+		WCHAR * sizeStr;
+		double a,b;
+		double jd = 2;
+		unsigned int i;
+		sizeStr = getPageSize(dm->engine,num,dm->Rotation());
+		swscanf_s(sizeStr,L"%lf%lf",&a,&b,wcslen(sizeStr));
+		free(sizeStr);
 
+		for (i=0;i<pageSizes.Size();i++)
+		{
+			if(abs(a - pageSizes[i].a) < jd && abs(b - pageSizes[i].b) < jd)
+				return i+1;
+		}
+		return 0;
+	}
 };
 
-pan_Printer printers[PNUM];
 
 
-int pan_Printer::isPrinting(0);
+static pan_PrintContext printContext;
 
 
 class ScopeHDC {
@@ -704,7 +797,6 @@ public:
 	int len;
 	~PrinttingControlThreadData()
 	{
-		int i = 3;
 		delete [] data;
 		
 	}
@@ -721,7 +813,7 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	for (i = 0;i<len;i++)
 	{
 		WaitForSingleObject(pan_PrintMutex,INFINITE);
-		if(!gIsReady[i] || data[i] ==NULL)
+		if(data[i] ==NULL)
 		{
 			ReleaseSemaphore(pan_PrintMutex,1,NULL);
 			continue;
@@ -754,7 +846,7 @@ static HGLOBAL GlobalMemDup(const void *data, size_t len)
 	return hGlobal;
 }
 
-enum { MAXPAGERANGES = 50 };
+
 
 class RangesContext
 {
@@ -807,7 +899,7 @@ public:
 				 continue;
 			
 			swscanf_s(str,L"%lf %*s %lf",&a,&b,wcslen(str));
-
+			free(str);
 			if(abs(a-21) < jd && abs(b-29.7) < jd)      //A4
 			{
 					cla[i] = 4;
@@ -878,10 +970,6 @@ public:
 		
 		SendDlgItemMessage(hDlg,IDC_I4,WM_SETTEXT,NULL,(LPARAM)&text);
 		
-		
-
-
-
 		j = 0;
 		memset(text,0,sizeof(text));
 		for (i=0;i<rlen[j];i++)
@@ -1219,7 +1307,6 @@ void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gp
 		{
 			wcscpy_s(text,L"打印机未设置");
 			gIsReady[i] = 0;
-			
 		}
 		switch(i)
 		{
@@ -1238,6 +1325,16 @@ void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gp
 	gRangesc.init(hDlg,win);
 	gRangesc.Classify();
 	gRangesc.Show();
+
+
+
+}
+
+void initPrintContext(HWND hDlg,WindowInfo *win)
+{
+	printContext.init(win,hDlg);
+	printContext.generatePageRange();
+	printContext.match();
 }
 
 static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1307,6 +1404,66 @@ void DoPrint()
 	
 }
 
+PrintData * pan_CreatePrintData(pan_Printer * printer,WindowInfo *win)
+{
+	Print_Advanced_Data advanced(PrintRangeAll, PrintScaleShrink, false);
+	PrintData *data = new PrintData(win->dm->engine, &(printer->printerInfo), printer->pDevMode, 
+		printer->pageRange->ppr, advanced, win->dm->Rotation(), NULL);
+	return data;
+}
+void pan_OnprintEx(WindowInfo *win)
+{
+	if(printContext.isPrinting)
+	{
+		MessageBoxW(win->hwndFrame,L"正在打印,请稍后再试",L"提示",0);
+		return ;
+	}
+	if (!HasPermission(Perm_PrinterAccess)) return;
+	DisplayModel *dm = win->dm;
+	assert(dm);
+	if (!dm) return;
+	if (!dm->engine)
+		return;
+#ifndef DISABLE_DOCUMENT_RESTRICTIONS
+	if (!dm->engine->AllowsPrinting())
+		return;
+#endif
+	if (win->IsChm()) {
+		win->dm->AsChmEngine()->PrintCurrentPage();
+		return;
+	}
+	if (win->printThread) {
+		int res = MessageBox(win->hwndFrame, 
+			_TR("Printing is still in progress. Abort and start over?"),
+			_TR("Printing in progress."),
+			MB_ICONEXCLAMATION | MB_YESNO | MbRtlReadingMaybe());
+		if (res == IDNO)
+			return;
+	}
+	AbortPrinting(win);
+
+
+	int printerNum = printContext.printers.Size();
+	int i;
+	PrintData ** datas;
+	datas = new PrintData *[printerNum];
+	for (i = 0;i<printerNum;i++)
+	{
+		if(printContext.printers[i]->isReady && !printContext.printers[i]->pageRange->isEmpty())
+			datas[i] = pan_CreatePrintData(printContext.printers[i],win);
+		else
+			datas[i] = NULL;
+	}
+
+
+	PrinttingControlThreadData *threadData;
+	threadData = new PrinttingControlThreadData();
+	threadData->win = win;
+	threadData->data = datas;
+	threadData->len = printerNum;
+	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
+	CloseHandle(hwnd);
+}
 
 void  pan_OnPrint(WindowInfo *win)
 {
@@ -1342,6 +1499,8 @@ void  pan_OnPrint(WindowInfo *win)
             return;
     }
     AbortPrinting(win);
+
+
 
 	int i;
 	PrintData ** datas;

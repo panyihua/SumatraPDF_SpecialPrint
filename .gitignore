@@ -1,5 +1,6 @@
 /obj-dbg/
 *.sdf
 *.opensdf
-*.suo1
+*.suo
+
 /vs/obj/
