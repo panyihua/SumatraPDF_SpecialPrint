@@ -1391,9 +1391,41 @@ static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
 }
 
 
-void pan_PrintDlg(WindowInfo *win)
+void pan_PrintDlg_bak(WindowInfo *win)
 {
 	if(DialogBoxParam(NULL, MAKEINTRESOURCE(IDD_PAN_PRINT), win->hwndFrame, PrintDlgProc, NULL)!= IDOK)
+	{
+		return;
+	}
+}
+
+static INT_PTR CALLBACK printDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
+{
+	WindowInfo *win = FindWindowInfoByHwnd(hDlg);
+	switch(msg)
+	{
+	case WM_INITDIALOG:
+			 return FALSE;
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+			
+			EndDialog(hDlg, IDOK);
+			return TRUE;
+
+		case IDCANCEL:
+			EndDialog(hDlg, IDCANCEL);
+			return TRUE;
+		}
+		 
+	}
+	return FALSE;
+}
+
+void pan_PrintDlg(WindowInfo *win)
+{
+	if(DialogBoxParam(NULL, MAKEINTRESOURCE(IDD_PRINT), win->hwndFrame, printDlgProc, NULL)!= IDOK)
 	{
 		return;
 	}
