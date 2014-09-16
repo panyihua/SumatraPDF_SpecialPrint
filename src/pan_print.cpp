@@ -1455,7 +1455,6 @@ void pan_OnprintEx(WindowInfo *win)
 			datas[i] = NULL;
 	}
 
-
 	PrinttingControlThreadData *threadData;
 	threadData = new PrinttingControlThreadData();
 	threadData->win = win;
