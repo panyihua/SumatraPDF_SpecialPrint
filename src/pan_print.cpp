@@ -1398,14 +1398,26 @@ void pan_PrintDlg_bak(WindowInfo *win)
 		return;
 	}
 }
-
+void dlgInit(HWND hDlg,WindowInfo *win)
+{
+	int i;
+	WCHAR title[50];
+	HWND list = GetDlgItem(hDlg,IDC_LIST2);
+	int pageNum = win->dm->PageCount();
+	for (i = 0; i < pageNum; i++ )
+	{
+		swprintf_s(title,sizeof(title)/sizeof(WCHAR) -1 ,L"ตฺ %d าณ",i);
+		ListBox_AppendString_NoSort(list,title);
+	}
+}
 static INT_PTR CALLBACK printDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
 {
 	WindowInfo *win = FindWindowInfoByHwnd(hDlg);
 	switch(msg)
 	{
 	case WM_INITDIALOG:
-			 return FALSE;
+		dlgInit(hDlg,win);
+		return FALSE;
 	case WM_COMMAND:
 		switch(LOWORD(wParam))
 		{
