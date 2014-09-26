@@ -14,6 +14,7 @@
 #include "WindowInfo.h"
 #include "WinUtil.h"
 #include "resource1.h"
+#include <vector>
 
 
 static HANDLE pan_PrintMutex;
@@ -152,6 +153,7 @@ public:
 		printerInfo.pPortName = NULL;
 		pDevMode = NULL;
 		filePath = NULL;
+		printerName = L"未配置的打印机";
 	}
 	~pan_Printer()
 	{
@@ -160,6 +162,7 @@ public:
 		free(printerInfo.pPortName);
 		free(pDevMode);
 		free(filePath);
+		
 	}
 	int loadPrinterFromPd(PRINTDLGEX & pd)
 	{
@@ -182,6 +185,8 @@ public:
 		GlobalUnlock(pd.hDevNames);
 		GlobalFree(pd.hDevNames);
 		GlobalFree(pd.hDevMode);
+		printerName = printerInfo.pPrinterName;
+		isReady = 1;
 		return 1;
 	}
 	int loadPrinterFromFile()
@@ -205,6 +210,8 @@ public:
 		printerInfo.pDriverName =str::Dup(diskPrinterInfo.DriverName);
 		printerInfo.pPrinterName = str::Dup(diskPrinterInfo.PrinterName);
 		printerInfo.pPortName = str::Dup(diskPrinterInfo.PortName);
+		printerName = printerInfo.pPrinterName;
+		isReady = 1;
 		fclose(f);
 		return 1;
 	}
@@ -228,12 +235,26 @@ public:
 		fclose(f);
 		return 1;
 	}
-	void setFilePath(WCHAR * path)
+	void setFilePath(WCHAR * path)  //使用内存转移
 	{
 		free(filePath);
 		filePath = path;
 	}
-
+	void reset()
+	{
+		free(printerInfo.pDriverName);
+		free(printerInfo.pPrinterName);
+		free(printerInfo.pPortName);
+		free(pDevMode);
+		free(filePath);
+		printerInfo.pDriverName = NULL;
+		printerInfo.pPrinterName = NULL;
+		printerInfo.pPortName = NULL;
+		pDevMode = NULL;
+		filePath = NULL;
+		isReady = 0;
+		printerName = L"未配置的打印机";
+	}
 
 	PRINTER_INFO_2 printerInfo;
 	LPDEVMODE pDevMode;
@@ -241,19 +262,20 @@ public:
 	
 	int isReady;
 	WCHAR * filePath;
+	WCHAR * printerName;
 	pan_PageRange *pageRange;
 
 };
 
 
 
-class pan_PageRange
+class pan_PageRange   //看作一个集合，看作属性，两者是不同的东西。   页码从1开始
 {
 	char page[1000];
 	DisplayModel * dm;
 public:
 	Vec<PRINTPAGERANGE> ppr;
-	char * rangeName;
+	wchar_t * rangeName;
 	pan_PageRange(DisplayModel *dm)
 	{
 		memset(page,0,sizeof(page));
@@ -275,9 +297,12 @@ public:
 	{
 		memset(page,0,sizeof(page));
 	}
-	void set(int p,int val)
+	void set(int p,int val)     
 	{
-		page[p>>3] |=  val << (7&p);
+		if(val == 1)
+			page[p>>3] |=  1 << (7&p);//|或运算  不能实现设为0
+		else if(val == 0)
+			page[p>>3] &=  ~(1<<(7&p));  //设0 要 &与运算
 	}
 	int get(int p)
 	{
@@ -315,37 +340,74 @@ public:
 	}
 };
 
-struct PageSize
+class PageSize
 {
+public:
 	double a;
 	double b;
+	wchar_t * sizeName;
 };
-
+class pan_PageInfo
+{
+public:
+	int type;
+	wchar_t * sizeName;
+};
 class pan_PrintContext
 {
 	WindowInfo * win;
 	DisplayModel *dm;
 	HWND hDlg;
 public:
+	int isInit;
 	Vec<pan_PageRange*> pageRanges;
 	Vec<PageSize> pageSizes;
 	Vec<pan_Printer*> printers;
+	std::vector<pan_PageInfo> pageInfos;
 	int isPrinting;
 	pan_PrintContext()
 	{
 		win = NULL;
 		dm = NULL;
-		isPrinting = 0;		
+		isPrinting = 0;
+		isInit = 0;
 	}
-	void init(WindowInfo * win,HWND hDlg)
+	void init(WindowInfo * win,HWND hDlg)    //不清零的初始化只能初始化一次
 	{
+		if(isInit == 1)
+			return ;
+		isInit = 1;
 		this->win = win;
 		this->dm = win->dm;
 		this->hDlg = hDlg;
 		unsigned int i;
 		pan_Printer *printer;
 		PageSize ps;
-		for (i = 0;i<PNUM;i++)
+
+		ps.a = 29.7;
+		ps.b = 42;
+		ps.sizeName = L"A3";
+		pageSizes.Append(ps);
+		ps.a = 21;
+		ps.b = 29.7;
+		ps.sizeName = L"A4";
+		pageSizes.Append(ps);
+		ps.a = 14.8;
+		ps.b = 21;
+		ps.sizeName = L"A5";
+		pageSizes.Append(ps);
+		pan_PageRange *pageRange;
+		for (i = 0; i < pageSizes.Size() + 1;i++)
+		{
+			pageRange = new pan_PageRange(dm);
+			if(i == 0)
+				pageRange->rangeName = L"彩";
+			else
+				pageRange->rangeName = pageSizes[i-1].sizeName;
+			pageRanges.Append(pageRange);
+		}
+
+		for (i = 0;i<pageSizes.Size() + 1;i++)
 		{
 			printer = new pan_Printer();
 			printers.Append(printer);
@@ -355,23 +417,12 @@ public:
 			printers[i]->setFilePath(str::Format(L"E:\\printer%d",i));
 			printers[i]->loadPrinterFromFile();
 		}
-
-		ps.a = 29.7;
-		ps.b = 42;
-		pageSizes.Append(ps);
-		ps.a = 21;
-		ps.b = 29.7;
-		pageSizes.Append(ps);
-		ps.a = 14.8;
-		ps.b = 21;
-		pageSizes.Append(ps);
-		pan_PageRange *pageRange;
-		for (i = 0; i < pageSizes.Size() + 1;i++)
-		{
-			pageRange = new pan_PageRange(dm);
-			pageRanges.Append(pageRange);
-		}
-
+		
+		//pageInfos.resize(dm->PageCount());
+		pageInfos.resize(1000);
+		
+		generatePageRange();                   //需不需要细分
+		matchRangeToPrinter();                    //需不需要细分   context不作为基础实体，在初始化这个功能上不需要细分。
 		
 	}
 	~pan_PrintContext()
@@ -389,21 +440,27 @@ public:
 	void addPageSize(PageSize ps)
 	{
 		pageSizes.Append(ps);
+		pageRanges.Append(new pan_PageRange(dm));
+		printers.Append(new pan_Printer());
 	}
 	void generatePageRange()
 	{
 		unsigned int i;
+		int j;
 		for (i = 0;i < pageRanges.Size();i++)
 		{
 			pageRanges[i]->clear();
 		}
-		for (i = 0;i < unsigned int (dm->PageCount()); i++)
+		for (i = 1;i <= unsigned int (dm->PageCount()); i++)
 		{
-			pageRanges[pageType(i)]->set(i,1);
+			j = pageType(i);
+			pageRanges[j]->set(i,1);
+			pageInfos[i-1].type = j;
+			pageInfos[i-1].sizeName = pageSizes[j].sizeName;
 		}
 
 	}
-	void match()
+	void matchRangeToPrinter()   //range 与 printer有相同的idx，容易关联
 	{
 		unsigned int i;
 		for (i = 0; i < pageRanges.Size(); i++)
@@ -411,6 +468,31 @@ public:
 			printers[i]->pageRange = pageRanges[i];
 		}
 	}
+	int getPagePrinterNum(int page)
+	{
+		unsigned int j;
+		for (j = 0; j< pageRanges.Size(); j++)    //实体设计导致O(n2)
+		{
+			if (pageRanges[j]->get(page))
+				break;
+		}
+		if(j< pageRanges.Size())
+			return j;
+		else
+			return -1;
+	}
+
+	void setPagePrinterNum(int printer,int page)
+	{
+		unsigned int i;
+		for (i=0;i<pageRanges.Size();i++)
+		{
+			pageRanges[i]->set(page,0);
+		}
+		pageRanges[printer]->set(page,1);
+
+	}
+
 private:
 	int pageType(int num)   //range 函数依赖 type
 	{
@@ -433,7 +515,7 @@ private:
 
 
 
-static pan_PrintContext printContext;
+static pan_PrintContext *printContext;
 
 
 class ScopeHDC {
@@ -846,8 +928,6 @@ static HGLOBAL GlobalMemDup(const void *data, size_t len)
 	return hGlobal;
 }
 
-
-
 class RangesContext
 {
 	WindowInfo *win;
@@ -933,7 +1013,6 @@ public:
 		ranges[curr][rlen[curr]++].nToPage = i-1;
 		delete [] cla;
 	}
-
 	void Show()
 	{
 		int i;
@@ -1291,8 +1370,6 @@ int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
 	return 1;
 }
 
-
-
 void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gpDevMode gIsReady gRangesc
 {                                            //函数功能可细分 dlginit与prepare data
 	int i;
@@ -1330,12 +1407,7 @@ void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gp
 
 }
 
-void initPrintContext(HWND hDlg,WindowInfo *win)
-{
-	printContext.init(win,hDlg);
-	printContext.generatePageRange();
-	printContext.match();
-}
+
 
 static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -1383,7 +1455,6 @@ static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
 				InitPrintDlg( hDlg,win);
 				return TRUE;
 			}
-
 		}
 		break;
 	}
@@ -1398,55 +1469,162 @@ void pan_PrintDlg_bak(WindowInfo *win)
 		return;
 	}
 }
-void dlgInit(HWND hDlg,WindowInfo *win)
+
+
+void DlgInit(HWND hDlg,WindowInfo *win)
 {
 	int i;
-	WCHAR title[50];
+	unsigned int j;
+	wchar_t * rangeName;
+	wchar_t * printerName;
+	WCHAR title[100];
 	HWND list = GetDlgItem(hDlg,IDC_LIST2);
 	int pageNum = win->dm->PageCount();
-	for (i = 0; i < pageNum; i++ )
+	unsigned int printerNum = printContext->printers.Size();
+	for (i = 1; i <= pageNum; i++)          //page与 range、printer是多对一关联。
 	{
-		swprintf_s(title,sizeof(title)/sizeof(WCHAR) -1 ,L"第 %d 页",i);
+		rangeName = NULL;
+		printerName = NULL;
+		j = printContext->getPagePrinterNum(i);
+		rangeName = printContext->pageRanges[j]->rangeName;
+		printerName = printContext->printers[j]->printerName;
+
+		swprintf_s(title,sizeof(title)/sizeof(WCHAR) - 1 ,L"第 %d 页",i);
+		if(rangeName)
+		{
+			wcscat_s(title,L"           ");
+			wcscat_s(title,rangeName);
+		}
+		if(printerName)
+		{
+			wcscat_s(title,L"           ");
+			wcscat_s(title,printerName);
+		}
+		
 		ListBox_AppendString_NoSort(list,title);
 	}
+
+	for (i = 0; i< int(printerNum);i++ )
+	{
+		SendDlgItemMessage(hDlg, IDC_COMBO1, CB_ADDSTRING, 0, (LPARAM)printContext->printers[i]->printerName);
+	}
+
+	SendDlgItemMessage(hDlg, IDC_LIST2, LB_SETCURSEL, 0, 0);
+	i = printContext->getPagePrinterNum(1);
+	SendDlgItemMessage(hDlg, IDC_COMBO1, CB_SETCURSEL, i , 0);
 }
-static INT_PTR CALLBACK printDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
+void PrinterSetting()
 {
+
+
+}
+void OnPrinterAlter(HWND hDlg)
+{
+	int printerNum,newPrinterNum,page = 0;
+	page = ListBox_GetCurSel(GetDlgItem(hDlg, IDC_LIST2))+1;
+	printerNum = printContext->getPagePrinterNum(page);
+	newPrinterNum = SendDlgItemMessage(hDlg, IDC_COMBO1, CB_GETCURSEL, 0, 0);
+	if(printerNum != -1)
+		printContext->pageRanges[printerNum]->set(page,0);
+	printContext->pageRanges[newPrinterNum]->set(page,1);
+
+
+	wchar_t title[100];
+	wchar_t *rangeName = printContext->pageRanges[newPrinterNum]->rangeName;
+	wchar_t *printerName = printContext->printers[newPrinterNum]->printerName;
+	swprintf_s(title,sizeof(title)/sizeof(WCHAR) - 1 ,L"第 %d 页",page);
+	if(rangeName)
+	{
+		wcscat_s(title,L"           ");
+		wcscat_s(title,rangeName);
+	}
+	if(printerName)
+	{
+		wcscat_s(title,L"           ");
+		wcscat_s(title,printerName);
+	}
+
+	HWND listHwnd = GetDlgItem(hDlg,IDC_LIST2);
+	ListBox_DeleteString(listHwnd,page - 1);
+	ListBox_InsertString(listHwnd,page - 1,title);
+	ListBox_SetCurSel(listHwnd,page - 1);
+	
+}
+ static INT_PTR CALLBACK pan_PrintDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
+{
+	
+	HWND pageList;
+	int idx;
+	int j;
+	
 	WindowInfo *win = FindWindowInfoByHwnd(hDlg);
 	switch(msg)
 	{
 	case WM_INITDIALOG:
-		dlgInit(hDlg,win);
+		printContext->init(win,hDlg);
+		DlgInit(hDlg,win);
+		
 		return FALSE;
 	case WM_COMMAND:
 		switch(LOWORD(wParam))
 		{
 		case IDOK:
-			
-			EndDialog(hDlg, IDOK);
+			/*wchar_t str[20];
+			pageList = GetDlgItem(hDlg, IDC_LIST2);
+			idx = ListBox_GetCurSel(pageList);
+			_itow_s(idx,str,10);
+			MessageBox(hDlg,str,L"x",0);
+			EndDialog(hDlg, IDOK);*/
 			return TRUE;
-
 		case IDCANCEL:
 			EndDialog(hDlg, IDCANCEL);
 			return TRUE;
+		case IDC_LIST2:
+			switch(HIWORD(wParam))
+			{
+			case 1:
+			pageList = GetDlgItem(hDlg, IDC_LIST2);
+			idx = ListBox_GetCurSel(pageList);
+			j = printContext->getPagePrinterNum(idx+1);
+			SendDlgItemMessage(hDlg, IDC_COMBO1, CB_SETCURSEL, j , 0);
+			
+			
+			}
+			break;
+		case IDC_SETTING:
+
+			break;
+		case IDC_ALTER:
+			OnPrinterAlter(hDlg);
+			break;
+			
+		default:
+			
+			break;
 		}
-		 
+		
+		break;
 	}
 	return FALSE;
+
+
 }
 
 void pan_PrintDlg(WindowInfo *win)
 {
-	if(DialogBoxParam(NULL, MAKEINTRESOURCE(IDD_PRINT), win->hwndFrame, printDlgProc, NULL)!= IDOK)
+	pan_PrintContext context;
+	printContext = &context;
+	if(DialogBoxParam(NULL, MAKEINTRESOURCE(IDD_PRINT), win->hwndFrame, pan_PrintDlgProc, NULL)== IDOK)
 	{
-		return;
+		
 	}
-}
 
-void DoPrint()
-{
+	printContext = NULL;
+	
 	
 }
+
+
 
 PrintData * pan_CreatePrintData(pan_Printer * printer,WindowInfo *win)
 {
@@ -1457,7 +1635,7 @@ PrintData * pan_CreatePrintData(pan_Printer * printer,WindowInfo *win)
 }
 void pan_OnprintEx(WindowInfo *win)
 {
-	if(printContext.isPrinting)
+	if(printContext->isPrinting)
 	{
 		MessageBoxW(win->hwndFrame,L"正在打印,请稍后再试",L"提示",0);
 		return ;
@@ -1487,14 +1665,14 @@ void pan_OnprintEx(WindowInfo *win)
 	AbortPrinting(win);
 
 
-	int printerNum = printContext.printers.Size();
+	int printerNum = printContext->printers.Size();
 	int i;
 	PrintData ** datas;
 	datas = new PrintData *[printerNum];
 	for (i = 0;i<printerNum;i++)
 	{
-		if(printContext.printers[i]->isReady && !printContext.printers[i]->pageRange->isEmpty())
-			datas[i] = pan_CreatePrintData(printContext.printers[i],win);
+		if(printContext->printers[i]->isReady && !printContext->printers[i]->pageRange->isEmpty())
+			datas[i] = pan_CreatePrintData(printContext->printers[i],win);
 		else
 			datas[i] = NULL;
 	}

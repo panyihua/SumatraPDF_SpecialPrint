@@ -4907,8 +4907,7 @@ static LRESULT FrameOnCommand(WindowInfo *win, HWND hwnd, UINT msg, WPARAM wPara
 
         case IDT_FILE_PRINT:
         case IDM_PRINT:
-            //OnMenuPrint(win);
-			//pan_OnMenuPrint1(win);
+            
 			pan_PrintDlg(win);
             break;
 			  
