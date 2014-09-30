@@ -55,7 +55,7 @@ usercode = $(BASEDIR)\userCode
 
 
 # some libraries require stdint.h
-CFLAGS = $(CFLAGS) /I$(SRCDIR)/utils/msvc
+CFLAGS = $(CFLAGS) /I$(SRCDIR)/utils/msvc /EHsc
 CFLAGSOPT = $(CFLAGSOPT) /I$(SRCDIR)/utils/msvc
 
 # include build data for the remaining third-party libraries
