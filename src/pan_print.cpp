@@ -1,4 +1,3 @@
-
 #include "BaseUtil.h"
 #include "AppPrefs.h"
 #include "AppTools.h"
@@ -15,38 +14,8 @@
 #include "resource1.h"
 #include <vector>
 
-
 static HANDLE pan_PrintMutex;
-#define PNUM 3
-#define MAXPAGERANGES 50
-static PRINTER_INFO_2 gPrinterInfo[PNUM];
-static LPDEVMODE gpDevMode[PNUM];
-static int gIsReady[PNUM];
-static int gIsPrinting;
-void  pan_OnPrint(WindowInfo *win);
-void pan_OnprintEx(WindowInfo *win);
-static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
-{
-	RectD mediabox = engine->PageMediabox(pageNo);
-	SizeD size = engine->Transform(mediabox, pageNo, 1.0, rotation).Size();
 
-	WCHAR unitSystem[2];
-	GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IMEASURE, unitSystem, dimof(unitSystem));
-	bool isMetric = unitSystem[0] == '0';
-	double unitsPerInch = isMetric ? 2.54 : 1.0;
-
-	double width = size.dx * unitsPerInch / engine->GetFileDPI();
-	double height = size.dy * unitsPerInch / engine->GetFileDPI();
-	if (((int)(width * 100)) % 100 == 99)
-		width += 0.01;
-	if (((int)(height * 100)) % 100 == 99)
-		height += 0.01;
-
-	ScopedMem<WCHAR> strWidth(str::FormatFloatWithThousandSep(width));
-	ScopedMem<WCHAR> strHeight(str::FormatFloatWithThousandSep(height));
-
-	return str::Format(L"%s x %s %s", strWidth, strHeight, isMetric ? L"cm" : L"in");
-}
 static WCHAR *getPageSize(BaseEngine *engine, int pageNo, int rotation)
 {
 	RectD mediabox = engine->PageMediabox(pageNo);
@@ -70,12 +39,7 @@ static WCHAR *getPageSize(BaseEngine *engine, int pageNo, int rotation)
 	return str::Format(L"%s %s", strWidth, strHeight);
 }
 
-struct DiskPrinterInfo
-{
-	WCHAR DriverName[200];
-	WCHAR PrinterName[200];
-	WCHAR PortName[200];
-};
+
 class AbortCookieManager {
 	CRITICAL_SECTION cookieAccess;
 public:
@@ -105,6 +69,12 @@ public:
 	}
 };
 
+struct DiskPrinterInfo
+{
+	WCHAR DriverName[200];
+	WCHAR PrinterName[200];
+	WCHAR PortName[200];
+};
 struct PrintData {
 	ScopedMem<WCHAR> driverName, printerName, portName;
 	ScopedMem<DEVMODE> devMode;
@@ -140,9 +110,8 @@ struct PrintData {
 		delete engine;
 	}
 };
-class pan_PageRange;
 
-class pan_Printer
+class pan_Printer   //涉及文件的类不是好类
 {
 public:
 	pan_Printer()
@@ -263,13 +232,10 @@ public:
 	int isReady;
 	WCHAR * filePath;
 	WCHAR * printerName;
-	pan_PageRange *pageRange;
 
 };
 
-
-
-class pan_PageRange   //看作一个集合，看作属性，两者是不同的东西。   页码从1开始
+class pan_PageRange   //页码从1开始
 {
 	char page[1000];
 	DisplayModel * dm;
@@ -355,7 +321,7 @@ public:
 	int type;
 	wchar_t * sizeName;
 };
-class pan_PrintContext        //元素之间的关系太复杂，用一个Context来管理
+class pan_PrintContext
 {
 	WindowInfo * win;
 	DisplayModel *dm;
@@ -382,49 +348,16 @@ public:
 		this->win = win;
 		this->dm = win->dm;
 		this->hDlg = hDlg;
-		unsigned int i;
-		pan_Printer *printer;
 		PageSize ps;
-
 		ps.a = 0;
 		ps.b = 0;
 		ps.sizeName = L"杂";
-		pageSizes.Append(ps);
-		ps.a = 29.7;
-		ps.b = 42;
-		ps.sizeName = L"A3";
-		pageSizes.Append(ps);
-		ps.a = 21;
-		ps.b = 29.7;
-		ps.sizeName = L"A4";
-		pageSizes.Append(ps);
-		ps.a = 14.8;
-		ps.b = 21;
-		ps.sizeName = L"A5";
-		pageSizes.Append(ps);
-		pan_PageRange *pageRange;
-		for (i = 0; i < pageSizes.Size() ;i++)
-		{
-			pageRange = new pan_PageRange(dm);
-			pageRange->rangeName = pageSizes[i].sizeName;
-			pageRanges.Append(pageRange);
-		}
+		addPageSize(ps);    //有一个默认类型
 
-		for (i = 0;i<pageSizes.Size();i++)
-		{
-			printer = new pan_Printer();
-			printers.Append(printer);
-		}
-		for (i = 0;i < printers.Size(); i++)
-		{
-			printers[i]->setFilePath(str::Format(L"E:\\printer%d",i));
-			printers[i]->loadPrinterFromFile();
-		}
-		
-		pageInfos.resize(dm->PageCount() + 1 );
-		
-		generatePageRange();  
-		matchRangeToPrinter();
+		defaultSetting();
+		generatePagesInfo();
+		generatePageRange();
+		loadPrinters();
 		
 	}
 	~pan_PrintContext()
@@ -439,11 +372,18 @@ public:
 			delete printers[i];
 		}
 	}
-	void addPageSize(PageSize ps)
+	void addPageSize(const PageSize& ps)
 	{
+		pan_PageRange * pageRange;
+		pan_Printer * printer;
 		pageSizes.Append(ps);
-		pageRanges.Append(new pan_PageRange(dm));
-		printers.Append(new pan_Printer());
+
+		pageRange = new pan_PageRange(dm);
+		pageRange->rangeName = ps.sizeName;
+		pageRanges.Append(pageRange);
+
+		printer = new pan_Printer();
+		printers.Append(printer);
 	}
 	
 	int getPagePrinterNum(int page)
@@ -470,7 +410,12 @@ public:
 		pageRanges[printer]->set(page,1);
 
 	}
-
+	int isReady(int i)
+	{
+		if(i>=0 && i< static_cast<int>(pageSizes.Size()))
+			return (printers[i]->isReady && !pageRanges[i]->isEmpty());
+		return 0;
+	}
 private:
 	int pageType(int num)   //range 函数依赖 type
 	{
@@ -489,6 +434,17 @@ private:
 		}
 		return 0;
 	}
+	void generatePagesInfo()
+	{
+		int i,j;
+		pageInfos.resize(dm->PageCount() + 1);
+		for (i=1;i<=dm->PageCount();i++ )
+		{
+			j = pageType(i);
+			pageInfos[i].type = j;
+			pageInfos[i].sizeName = pageSizes[j].sizeName;
+		}
+	}
 	void generatePageRange()
 	{
 		unsigned int i;
@@ -501,25 +457,36 @@ private:
 		{
 			j = pageType(i);
 			pageRanges[j]->set(i,1);
-			pageInfos[i].type = j;
-			pageInfos[i].sizeName = pageSizes[j].sizeName;
 		}
-
 	}
-	void matchRangeToPrinter()   //range 与 printer有相同的idx，容易关联
+	void loadPrinters()
 	{
-		unsigned int i;
-		for (i = 0; i < pageRanges.Size(); i++)
+		size_t i;
+		for (i = 0;i < printers.Size(); i++)
 		{
-			printers[i]->pageRange = pageRanges[i];
+			printers[i]->setFilePath(str::Format(L"E:\\printer%d",i));
+			printers[i]->loadPrinterFromFile();
 		}
+	}
+	void defaultSetting()
+	{
+		PageSize ps;
+		ps.a = 29.7;
+		ps.b = 42;
+		ps.sizeName = L"A3";
+		addPageSize(ps);
+		ps.a = 21;
+		ps.b = 29.7;
+		ps.sizeName = L"A4";
+		addPageSize(ps);
+		ps.a = 14.8;
+		ps.b = 21;
+		ps.sizeName = L"A5";
+		addPageSize(ps);
 	}
 };
 
-
-
 static pan_PrintContext *printContext;
-
 
 class ScopeHDC {
 	HDC hdc;
@@ -529,14 +496,6 @@ public:
 	operator HDC() const { return hdc; }
 };
 
-void static AbortPrinting(WindowInfo *win)
-{
-	if (win->printThread) {
-		win->printCanceled = true;
-		WaitForSingleObject(win->printThread, INFINITE);
-	}
-	win->printCanceled = false;
-}
 static RectD BoundSelectionOnPage(const Vec<SelectionOnPage>& sel, int pageNo)
 {
 	RectD bounds;
@@ -546,20 +505,7 @@ static RectD BoundSelectionOnPage(const Vec<SelectionOnPage>& sel, int pageNo)
 	}
 	return bounds;
 }
-class PrintThreadUpdateTask : public UITask {
-	NotificationWnd *wnd;
-	int current, total;
-	WindowInfo *win;
 
-public:
-	PrintThreadUpdateTask(WindowInfo *win, NotificationWnd *wnd, int current, int total)
-		: win(win), wnd(wnd), current(current), total(total) { }
-
-	virtual void Execute() {
-		if (WindowInfoStillValid(win) && win->notifications->Contains(wnd))
-			wnd->UpdateProgress(current, total);
-	}
-};
 static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI *progressUI=NULL, AbortCookieManager *abortCookie=NULL)
 {
 	AssertCrash(pd.engine);
@@ -798,9 +744,6 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI *progressUI=NULL
 }
 
 class pan_PrintThreadData : public UITask {
-	//NotificationWnd *wnd;
-	//AbortCookieManager cookie;
-	//bool isCanceled;
 	WindowInfo *win;
 
 public:
@@ -819,23 +762,6 @@ public:
 		delete data;
 		//RemoveNotification(wnd);
 	}
-
-	/*virtual void UpdateProgress(int current, int total) {
-		uitask::Post(new PrintThreadUpdateTask(win, wnd, current, total));
-	}*/
-
-	/*virtual bool WasCanceled() {
-		return isCanceled || !WindowInfoStillValid(win) || win->printCanceled;
-	}*/
-
-	// called when printing has been canceled
-	//virtual void RemoveNotification(NotificationWnd *wnd) {
-	//isCanceled = true;
-	//cookie.Abort();
-	//this->wnd = NULL;
-	////if (WindowInfoStillValid(win))
-	//	//win->notifications->RemoveNotification(wnd);
-	//}
 
 	static DWORD WINAPI PrintThread(LPVOID data)    
 	{
@@ -888,7 +814,7 @@ public:
 };
 static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 {
-	gIsPrinting = 1;
+	printContext->isPrinting = 1;
 	PrinttingControlThreadData *treadData = (PrinttingControlThreadData*) inData;
 	WindowInfo *win = treadData->win;
 	PrintData **data = treadData->data;
@@ -910,379 +836,8 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	delete inData;              
 	ReleaseSemaphore(pan_PrintMutex,1,NULL);
 	CloseHandle(pan_PrintMutex);
-	gIsPrinting = 0;
+	printContext->isPrinting = 0;
 	return 0;
-}
-
-
-
-class RangesContext
-{
-	WindowInfo *win;
-	DisplayModel *dm;
-	HWND hDlg;
-public:
-	PRINTPAGERANGE ranges[6][MAXPAGERANGES];
-	int rlen[6];
-	RangesContext()
-	{
-		win = NULL;
-		dm = NULL;
-	}
-	void init(HWND hDlg,WindowInfo *win)
-	{
-		int i;
-		for (i =0;i<6;i++)
-		{
-			rlen[i] = 0;
-		}
-		this->win = win;
-		this->dm = win->dm;
-		this->hDlg = hDlg;
-	}
-	RangesContext(HWND hDlg,WindowInfo *win)
-	{
-		init(hDlg,win);
-	}
-	PRINTPAGERANGE * getRanges(int i,int &len)
-	{
-		len = rlen[i];
-		return ranges[i];
-	}
-
-	void Classify()
-	{
-		int i;
-		WCHAR* str;
-		double a,b;
-		double jd = 2;
-		int pageCount = dm->PageCount();
-		WCHAR * cla = new WCHAR[pageCount+1];
-		int len =0;
-		int curr;
-		for (i = 1;i <= pageCount;i++ )
-		{
-			 str = FormatPageSize(dm->engine, i, dm->Rotation());
-			 if(!str)
-				 continue;
-			
-			swscanf_s(str,L"%lf %*s %lf",&a,&b,wcslen(str));
-			free(str);
-			if(abs(a-21) < jd && abs(b-29.7) < jd)      //A4
-			{
-					cla[i] = 4;
-			}
-			else
-			if(abs(a-14.8) < jd && abs(b-21) < jd)     //A5
-			{
-				cla[i] = 5;
-			}
-			else
-			if(abs(a-29.7) < jd && abs(b-42) < jd)    //A3
-			{
-				cla[i] = 3;
-			}
-			else                                //其他
-			{
-				cla[i] = 0;
-			}
-		}
-		curr = cla[1];
-		ranges[curr][rlen[curr]].nFromPage = 1;
-		for (i=2;i<=pageCount;i++)
-		{
-			if(curr != cla[i])
-			{
-				ranges[curr][rlen[curr]++].nToPage = i-1;
-				curr = cla[i];
-				ranges[curr][rlen[curr]].nFromPage = i;
-			}
-		}
-		ranges[curr][rlen[curr]++].nToPage = i-1;
-		delete [] cla;
-	}
-	void Show()
-	{
-		int i;
-		WCHAR text[200] = {0};
-		WCHAR temp1[100] = {0};
-		WCHAR temp2[100] = {0};
-		int j;
-
-		j = 3;
-		for (i=0;i<rlen[j];i++)
-		{
-			swprintf_s(temp1,L"%d",ranges[j][i].nFromPage);
-			swprintf_s(temp2,L"%d",ranges[j][i].nToPage);
-			wcscat_s(text,200,temp1);
-			wcscat_s(text,200,L" - ");
-			wcscat_s(text,200,temp2);
-			wcscat_s(text,200,L"\r\n");
-		}
-		
-		SendDlgItemMessage(hDlg,IDC_I3,WM_SETTEXT,NULL,(LPARAM)&text);
-		
-
-		j = 4;
-		memset(text,0,sizeof(text));
-		for (i=0;i<rlen[j];i++)
-		{
-			swprintf_s(temp1,L"%d",ranges[j][i].nFromPage);
-			swprintf_s(temp2,L"%d",ranges[j][i].nToPage);
-			wcscat_s(text,200,temp1);
-			wcscat_s(text,200,L" - ");
-			wcscat_s(text,200,temp2);
-			wcscat_s(text,200,L"\r\n");
-		}
-		
-		SendDlgItemMessage(hDlg,IDC_I4,WM_SETTEXT,NULL,(LPARAM)&text);
-		
-		j = 0;
-		memset(text,0,sizeof(text));
-		for (i=0;i<rlen[j];i++)
-		{
-			swprintf_s(temp1,L"%d",ranges[j][i].nFromPage);
-			swprintf_s(temp2,L"%d",ranges[j][i].nToPage);
-			wcscat_s(text,200,temp1);
-			wcscat_s(text,200,L" - ");
-			wcscat_s(text,200,temp2);
-			wcscat_s(text,200,L"\r\n");
-		}
-		
-		SendDlgItemMessage(hDlg,IDC_I5,WM_SETTEXT,NULL,(LPARAM)&text);
-	}
-};
-static RangesContext gRangesc;
-PrintData * CreatePrintData(PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode ,PRINTPAGERANGE *pRange,int nRange,WindowInfo *win)
-{
-	DisplayModel *dm = win->dm;
-	Vec<PRINTPAGERANGE> ranges;
-	int i;
-	Print_Advanced_Data advanced(PrintRangeAll, PrintScaleShrink, false);
-	for (i=0;i<nRange;i++)
-	{
-		ranges.Append(pRange[i]);
-	}
-	
-	PrintData *data = new PrintData(dm->engine, &printerInfo, pDevMode, ranges, advanced,
-		dm->Rotation(), NULL);
-
-	free(printerInfo.pPrinterName);
-	free(printerInfo.pDriverName);
-	free(printerInfo.pPortName);
-	free(pDevMode);
-	printerInfo.pPrinterName = NULL;
-	printerInfo.pDriverName = NULL;
-	printerInfo.pPortName = NULL;
-	pDevMode = NULL;
-	return data;
-}
-static int GetPdFromUser(PRINTDLGEX& pd,WindowInfo* win)
-{
-    ZeroMemory(&pd, sizeof(PRINTDLGEX));
-    pd.lStructSize = sizeof(PRINTDLGEX);
-    pd.hwndOwner   = win->hwndFrame;
-    pd.Flags       = PD_USEDEVMODECOPIESANDCOLLATE | PD_COLLATE;
-
-    pd.Flags |= PD_NOSELECTION;
-
-
-    pd.nCopies     = 1;
-    pd.nPageRanges = 1;
-    pd.nMaxPageRanges = MAXPAGERANGES;
-
-    pd.nMinPage = 1;
-    pd.nMaxPage = win->dm->PageCount();
-    pd.nStartPage = START_PAGE_GENERAL;
-
-
-	PRINTPAGERANGE *ppr = AllocArray<PRINTPAGERANGE>(MAXPAGERANGES);
-	pd.lpPageRanges = ppr;
-	ppr->nFromPage = 1;
-	ppr->nToPage = win->dm->PageCount();
-
-    if (PrintDlgEx(&pd) != S_OK) {
-        if (CommDlgExtendedError() != 0) {
-            /* if PrintDlg was cancelled then
-               CommDlgExtendedError is zero, otherwise it returns the
-               error code, which we could look at here if we wanted.
-               for now just warn the user that printing has stopped
-               becasue of an error */
-            MessageBoxWarning(win->hwndFrame, _TR("Couldn't initialize printer"), 
-                              _TR("Printing problem."));
-        }
-		free(ppr);
-
-		return 0;
-    }
-	free(ppr);
-	if (pd.dwResultAction == PD_RESULT_PRINT || pd.dwResultAction == PD_RESULT_APPLY)
-		return 1;
-	return 0;
-}
-static void TransformAndSavePd(int type,PRINTDLGEX& pd,HWND hwnd)   //功能可细分
-{
-
-	PRINTER_INFO_2 printerInfo = { 0 };
-	DiskPrinterInfo diskP;
-	LPDEVMODE devMode = (LPDEVMODE)GlobalLock(pd.hDevMode);
-	LPDEVNAMES devNames = (LPDEVNAMES)GlobalLock(pd.hDevNames);
-	if (!devMode) {
-		return;
-	}
-	if (devNames) {
-		printerInfo.pDriverName = (LPWSTR)devNames + devNames->wDriverOffset;
-		printerInfo.pPrinterName = (LPWSTR)devNames + devNames->wDeviceOffset;
-		printerInfo.pPortName = (LPWSTR)devNames + devNames->wOutputOffset;
-		wcscpy_s(diskP.DriverName,printerInfo.pDriverName);
-		wcscpy_s(diskP.PrinterName,printerInfo.pPrinterName);
-		wcscpy_s(diskP.PortName,printerInfo.pPortName);
-	}
-
-
-	FILE *f;
-	char filePath[50] = "e:\\Printer";
-	filePath[strlen(filePath)] = (char)type+'0';
-	filePath[strlen(filePath)+1] = 0;
-	fopen_s(&f,filePath,"wb");
-
-	WORD nDevMode = devMode->dmSize + devMode->dmDriverExtra;
-	fwrite(&diskP,sizeof(DiskPrinterInfo),1,f);
-	fwrite(&nDevMode,sizeof(nDevMode),1,f);
-	fwrite(devMode,devMode->dmSize + devMode->dmDriverExtra,1,f);
-
-	GlobalUnlock(pd.hDevMode);
-	GlobalUnlock(pd.hDevNames);
-	GlobalFree(pd.hDevNames);
-	GlobalFree(pd.hDevMode);
-	fclose(f);
-	MessageBoxW(hwnd,L"打印机设置成功",L"提示",0);
-}
-int GetPrinterInfo(int type,PRINTER_INFO_2& printerInfo,LPDEVMODE &pDevMode)
-{
-	DiskPrinterInfo diskP;
-	WORD nDevMode;
-
-	FILE *f;
-	char filePath[50] = "e:\\Printer";
-	filePath[strlen(filePath)] =(char) type+'0';
-	filePath[strlen(filePath)+1] = 0;
-	fopen_s(&f,filePath,"rb");
-	if(!f)
-		return 0;
-	fread(&diskP,sizeof(diskP),1,f);
-	fread(&nDevMode,sizeof(nDevMode),1,f);
-	free(pDevMode);
-	pDevMode =(LPDEVMODE) malloc(nDevMode);
-	fread(pDevMode,nDevMode,1,f);
-
-	free(printerInfo.pDriverName);
-	free(printerInfo.pPrinterName);
-	free(printerInfo.pPortName);
-	printerInfo.pDriverName =str::Dup(diskP.DriverName);
-	printerInfo.pPrinterName = str::Dup(diskP.PrinterName);
-	printerInfo.pPortName = str::Dup(diskP.PortName);
-	fclose(f);
-	return 1;
-}
-void InitPrintDlg(HWND hDlg,WindowInfo* win)   //设置4组全局变量 gPrinterInfo gpDevMode gIsReady gRangesc
-{                                            //函数功能可细分 dlginit与prepare data
-	int i;
-	WCHAR text[50] = {0};
-	for (i=0;i<PNUM;i++)
-	{
-		if(GetPrinterInfo(i+3,gPrinterInfo[i],gpDevMode[i]))
-		{
-			wcscpy_s(text,gPrinterInfo[i].pPrinterName);
-			gIsReady[i] = 1;
-		}else
-		{
-			wcscpy_s(text,L"打印机未设置");
-			gIsReady[i] = 0;
-		}
-		switch(i)
-		{
-		case 0:
-			SetDlgItemText(hDlg, IDC_P3, text);
-			break;
-		case 1:
-			SetDlgItemText(hDlg, IDC_P4, text);
-			break;
-		case 2:
-			SetDlgItemText(hDlg, IDC_P5, text);
-			break;
-		}
-	}
-
-	gRangesc.init(hDlg,win);
-	gRangesc.Classify();
-	gRangesc.Show();
-
-
-
-}
-
-
-
-static INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-	HWND parent = GetParent(hDlg);
-	WindowInfo *win = FindWindowInfoByHwnd(hDlg);
-	//WindowInfo *win = FindWindowInfoByHwnd(parent);
-	switch (msg)
-	{
-	case WM_INITDIALOG:
-		InitPrintDlg(hDlg,win);
-		return FALSE;
-	case WM_COMMAND:
-		switch (LOWORD(wParam))
-		{
-		case IDOK:
-			pan_OnPrint(win);
-			EndDialog(hDlg, IDOK);
-			return TRUE;
-
-		case IDCANCEL:
-			EndDialog(hDlg, IDCANCEL);
-			return TRUE;
-		case IDC_BUTTON3:
-			{
-				PRINTDLGEX pd;
-				GetPdFromUser(pd,win);
-				TransformAndSavePd(3,pd,hDlg);
-				InitPrintDlg( hDlg,win);
-				return TRUE;
-			}
-			
-		case IDC_BUTTON4:
-			{
-				PRINTDLGEX pd;
-				GetPdFromUser(pd,win);
-				TransformAndSavePd(4,pd,hDlg);
-				InitPrintDlg( hDlg,win);
-				return TRUE;
-			}
-		case IDC_BUTTON5:
-			{
-				PRINTDLGEX pd;
-				GetPdFromUser(pd,win);
-				TransformAndSavePd(5,pd,hDlg);
-				InitPrintDlg( hDlg,win);
-				return TRUE;
-			}
-		}
-		break;
-	}
-	return FALSE;
-}
-
-
-void pan_PrintDlg_bak(WindowInfo *win)
-{
-	if(DialogBoxParam(NULL, MAKEINTRESOURCE(IDD_PAN_PRINT), win->hwndFrame, PrintDlgProc, NULL)!= IDOK)
-	{
-		return;
-	}
 }
 
 void static formatListItemString(wchar_t *title,int len,wchar_t* rangeName,wchar_t * printerName)
@@ -1367,10 +922,10 @@ static void OnListClick(HWND hDlg)
 	SendDlgItemMessage(hDlg, IDC_COMBO1, CB_SETCURSEL, j , 0);
 	SetDlgItemText(hDlg,IDC_ALTER_TEXT,L"");
 }
-
+void pan_DoPrint(WindowInfo *win);
 static void OnOK(HWND hDlg,WindowInfo * win)
 {
-	pan_OnprintEx(win);
+	pan_DoPrint(win);
 }
 static void OnPaint(HWND hDlg,WindowInfo *win)
 {
@@ -1448,16 +1003,14 @@ void pan_PrintDlg(WindowInfo *win)
 	
 }
 
-
-
-PrintData * pan_CreatePrintData(pan_Printer * printer,WindowInfo *win)
+PrintData * pan_CreatePrintData(pan_Printer * printer,pan_PageRange *pageRange,WindowInfo *win)
 {
 	Print_Advanced_Data advanced(PrintRangeAll, PrintScaleShrink, false);
 	PrintData *data = new PrintData(win->dm->engine, &(printer->printerInfo), printer->pDevMode, 
-		printer->pageRange->ppr, advanced, win->dm->Rotation(), NULL);
+		pageRange->ppr, advanced, win->dm->Rotation(), NULL);
 	return data;
 }
-void pan_OnprintEx(WindowInfo *win)
+void pan_DoPrint(WindowInfo *win)
 {
 	if(printContext->isPrinting)
 	{
@@ -1486,20 +1039,17 @@ void pan_OnprintEx(WindowInfo *win)
 		if (res == IDNO)
 			return;
 	}
-	AbortPrinting(win);
-
 
 	int printerNum = printContext->printers.Size();
-	int i;
 	PrintData ** datas;
 	datas = new PrintData *[printerNum];
 	for (size_t i = 0;i<printContext->pageRanges.Size();i++)
 		printContext->pageRanges[i]->format();
 
-	for (i = 0;i<printerNum;i++)
+	for (int i = 0;i<printerNum;i++)
 	{
-		if(printContext->printers[i]->isReady && !printContext->printers[i]->pageRange->isEmpty())
-			datas[i] = pan_CreatePrintData(printContext->printers[i],win);
+		if(printContext->isReady(i))
+			datas[i] = pan_CreatePrintData(printContext->printers[i],printContext->pageRanges[i],win);
 		else
 			datas[i] = NULL;
 	}
@@ -1512,76 +1062,3 @@ void pan_OnprintEx(WindowInfo *win)
 	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
 	CloseHandle(hwnd);
 }
-
-void  pan_OnPrint(WindowInfo *win)
-{
-	if(gIsPrinting)
-	{
-		MessageBoxW(win->hwndFrame,L"正在打印,请稍后再试",L"提示",0);
-		return ;
-	}
-    if (!HasPermission(Perm_PrinterAccess)) return;
-
-    DisplayModel *dm = win->dm;
-    assert(dm);
-    if (!dm) return;
-
-    if (!dm->engine)
-        return;
-#ifndef DISABLE_DOCUMENT_RESTRICTIONS
-    if (!dm->engine->AllowsPrinting())
-        return;
-#endif
-
-    if (win->IsChm()) {
-        win->dm->AsChmEngine()->PrintCurrentPage();
-        return;
-    }
-
-    if (win->printThread) {
-        int res = MessageBox(win->hwndFrame, 
-                             _TR("Printing is still in progress. Abort and start over?"),
-                             _TR("Printing in progress."),
-                             MB_ICONEXCLAMATION | MB_YESNO | MbRtlReadingMaybe());
-        if (res == IDNO)
-            return;
-    }
-    AbortPrinting(win);
-
-
-
-	int i;
-	PrintData ** datas;
-	datas = new PrintData *[PNUM];
-	int nRange;
-	PRINTPAGERANGE * pRange = NULL;
-	for (i = 0;i<PNUM;i++)
-	{
-		pRange = gRangesc.getRanges((i+3 == 5)?0:i+3,nRange);
-		if(nRange>0 && gIsReady[i])
-			datas[i] = CreatePrintData(gPrinterInfo[i],gpDevMode[i],pRange,nRange,win);
-		else
-			datas[i] = NULL;
-	}
-
-
-	PrinttingControlThreadData *threadData;
-	threadData = new PrinttingControlThreadData();
-	threadData->win = win;
-	threadData->data = datas;
-	threadData->len = i;
-
-
-	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
-	CloseHandle(hwnd);
-	
-}
-
-
-//static void OnSetting(HWND hDlg,WindowInfo *win)
-//{
-//	
-//
-//
-//}
-
