@@ -24,6 +24,7 @@ static LPDEVMODE gpDevMode[PNUM];
 static int gIsReady[PNUM];
 static int gIsPrinting;
 void  pan_OnPrint(WindowInfo *win);
+void pan_OnprintEx(WindowInfo *win);
 static WCHAR *FormatPageSize(BaseEngine *engine, int pageNo, int rotation)
 {
 	RectD mediabox = engine->PageMediabox(pageNo);
@@ -287,10 +288,10 @@ public:
 		{
 			if(page[i])
 			{
-				return 1;
+				return 0;
 			}
 		}
-		return 0;
+		return 1;
 	}
 	void clear()
 	{
@@ -307,14 +308,16 @@ public:
 	{
 		return page[p>>3] & 1<<(7&p);
 	}
-	void format()
+	void format()          //需要先清零再将char page[1000] 格式化到 Vec<PRINTPAGERANGE> ppr
 	{
 		int i;
 		int begin,end;
 		int b;
 		PRINTPAGERANGE pr;
 		b = 1;
-		for (i=0;i<dm->PageCount();i++)
+		begin = 0;
+		ppr.Reset();
+		for (i=1;i<= dm->PageCount();i++)//页码从1开始
 		{
 			if(get(i) && b)
 			{
@@ -383,6 +386,10 @@ public:
 		pan_Printer *printer;
 		PageSize ps;
 
+		ps.a = 0;
+		ps.b = 0;
+		ps.sizeName = L"杂";
+		pageSizes.Append(ps);
 		ps.a = 29.7;
 		ps.b = 42;
 		ps.sizeName = L"A3";
@@ -396,17 +403,14 @@ public:
 		ps.sizeName = L"A5";
 		pageSizes.Append(ps);
 		pan_PageRange *pageRange;
-		for (i = 0; i < pageSizes.Size() + 1;i++)
+		for (i = 0; i < pageSizes.Size() ;i++)
 		{
 			pageRange = new pan_PageRange(dm);
-			if(i == 0)
-				pageRange->rangeName = L"彩";
-			else
-				pageRange->rangeName = pageSizes[i-1].sizeName;
+			pageRange->rangeName = pageSizes[i].sizeName;
 			pageRanges.Append(pageRange);
 		}
 
-		for (i = 0;i<pageSizes.Size() + 1;i++)
+		for (i = 0;i<pageSizes.Size();i++)
 		{
 			printer = new pan_Printer();
 			printers.Append(printer);
@@ -445,7 +449,7 @@ public:
 	int getPagePrinterNum(int page)
 	{
 		unsigned int j;
-		for (j = 0; j< pageRanges.Size(); j++)    //实体设计导致O(n2)
+		for (j = 0; j< pageRanges.Size(); j++)    //实体设计导致O(n)
 		{
 			if (pageRanges[j]->get(page))
 				break;
@@ -478,10 +482,10 @@ private:
 		swscanf_s(sizeStr,L"%lf%lf",&a,&b,wcslen(sizeStr));
 		free(sizeStr);
 
-		for (i=0;i<pageSizes.Size();i++)
+		for (i=1;i<pageSizes.Size();i++)
 		{
 			if(abs(a - pageSizes[i].a) < jd && abs(b - pageSizes[i].b) < jd)
-				return i+1;
+				return i;
 		}
 		return 0;
 	}
@@ -910,22 +914,6 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	return 0;
 }
 
-static HGLOBAL GlobalMemDup(const void *data, size_t len)
-{
-	HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, len);
-	if (!hGlobal)
-		return NULL;
-
-	void *globalData = GlobalLock(hGlobal);
-	if (!globalData) {
-		GlobalFree(hGlobal);
-		return NULL;
-	}
-
-	memcpy(globalData, data, len);
-	GlobalUnlock(hGlobal);
-	return hGlobal;
-}
 
 
 class RangesContext
@@ -1382,14 +1370,17 @@ static void OnListClick(HWND hDlg)
 
 static void OnOK(HWND hDlg,WindowInfo * win)
 {
-
+	pan_OnprintEx(win);
 }
 static void OnPaint(HWND hDlg,WindowInfo *win)
 {
 
 
 }
+static void OnSetting(HWND hDlg,WindowInfo * win)
+{
 
+}
 
  static INT_PTR CALLBACK pan_PrintDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
 {
@@ -1428,7 +1419,7 @@ static void OnPaint(HWND hDlg,WindowInfo *win)
 			}
 			break;
 		case IDC_SETTING:
-
+			OnSetting(hDlg,win);
 			break;
 		case IDC_ALTER:
 			OnPrinterAlter(hDlg);
@@ -1502,6 +1493,9 @@ void pan_OnprintEx(WindowInfo *win)
 	int i;
 	PrintData ** datas;
 	datas = new PrintData *[printerNum];
+	for (size_t i = 0;i<printContext->pageRanges.Size();i++)
+		printContext->pageRanges[i]->format();
+
 	for (i = 0;i<printerNum;i++)
 	{
 		if(printContext->printers[i]->isReady && !printContext->printers[i]->pageRange->isEmpty())
@@ -1584,10 +1578,10 @@ void  pan_OnPrint(WindowInfo *win)
 }
 
 
-static void OnSetting(HWND hDlg,WindowInfo *win)
-{
-	
-
-
-}
+//static void OnSetting(HWND hDlg,WindowInfo *win)
+//{
+//	
+//
+//
+//}
 
