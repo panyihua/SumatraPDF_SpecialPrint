@@ -5417,7 +5417,6 @@ static int RunMessageLoop()
         HWND accHwnd = win ? win->hwndFrame : msg.hwnd;
         if (TranslateAccelerator(accHwnd, accTable, &msg))
             continue;
-
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
