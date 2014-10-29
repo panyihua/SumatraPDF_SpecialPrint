@@ -809,7 +809,6 @@
     </ClCompile>
     <ClCompile Include="..\src\pan_print.cpp" />
     <ClCompile Include="test.cpp" />
-    <ClCompile Include="..\src\pan_printSetting.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\AppPrefs.h">
@@ -1243,7 +1242,6 @@
     </ClInclude>
     <ClInclude Include="..\src\pan_print.h" />
     <ClInclude Include="..\userCode\resource1.h" />
-    <ClInclude Include="..\src\pan_printSetting.h" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="..\src\installer\Installer.exe.manifest">

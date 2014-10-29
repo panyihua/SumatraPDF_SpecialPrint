@@ -98,7 +98,6 @@
     <ClCompile Include="..\src\MuPDF_Exports.cpp" />
     <ClCompile Include="..\src\Notifications.cpp" />
     <ClCompile Include="..\src\pan_print.cpp" />
-    <ClCompile Include="..\src\pan_printSetting.cpp" />
     <ClCompile Include="..\src\ParseCommandLine.cpp" />
     <ClCompile Include="..\src\PdfSync.cpp" />
     <ClCompile Include="..\src\Print.cpp" />
@@ -353,7 +352,6 @@
     <ClInclude Include="..\src\Menu.h" />
     <ClInclude Include="..\src\Notifications.h" />
     <ClInclude Include="..\src\pan_print.h" />
-    <ClInclude Include="..\src\pan_printSetting.h" />
     <ClInclude Include="..\src\ParseCommandLine.h" />
     <ClInclude Include="..\src\PdfSync.h" />
     <ClInclude Include="..\src\Print.h" />

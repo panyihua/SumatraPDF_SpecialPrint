@@ -12,7 +12,6 @@
 #include "WindowInfo.h"
 #include "WinUtil.h"
 #include "resource1.h"
-#include "pan_printSetting.h"
 #include <vector>
 
 class pan_PrintContext;
@@ -329,13 +328,14 @@ class pan_PageSize
 public:
 	double a;
 	double b;
+	wchar_t typeName[20];
 	wchar_t sizeName[20];
 };
 class pan_PageInfo
 {
 public:
-	char type;
-	wchar_t * infoName;
+	char printType;
+	char rawType;
 };
 class pan_PrintContext
 {
@@ -352,19 +352,14 @@ public:
 		isPrinting = 0;
 		isInit = 0;
 	}
-	void init()    //不清零的初始化只能初始化一次
+	void init()
 	{
 		if(isInit == 1)
 			return ;
 		isInit = 1;
-		pan_PageSize ps;
-		ps.a = 0;
-		ps.b = 0;
-		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"Other");
-		addPageSize(ps);    //有一个默认类型
-
 		addDefaultPageSize();
 		generatePageInfo();
+		DefaultPrintType();
 		generatePageRange();
 		loadPrinters();
 	}
@@ -384,7 +379,7 @@ public:
 	{
 		for (unsigned i = 0;i< pageSizes.Size();i++)
 		{
-			if (wcscmp(ps.sizeName,pageSizes[i].sizeName) == 0)
+			if (wcscmp(ps.typeName,pageSizes[i].typeName) == 0)
 				return 0;
 		}
 		pan_PageRange * pageRange;
@@ -413,23 +408,26 @@ public:
 	{
 		for (unsigned i = 0;i< pageSizes.Size();i++)
 		{
-			if (idx!= i && wcscmp(ps.sizeName,pageSizes[i].sizeName) == 0)
+			if (idx!= i && wcscmp(ps.typeName,pageSizes[i].typeName) == 0)
 				return 0;
 		}
 		pageSizes[idx] = ps;
 		return 1;
 	}
 
-	int getPageType(int page)
+	int getPagePrintType(int page)
 	{
-		return pageInfos[page].type;
+		return pageInfos[page].printType;
 	}
-
-	int setPageType(int page,int type)
+	int getPageRawType(int page)
+	{
+		return pageInfos[page].rawType;
+	}
+	int setPagePrintType(int page,int type)
 	{
 		if(type<0 || type >= (int)pageSizes.Size())
 			return 0;
-		pageInfos[page].type = (char)type;
+		pageInfos[page].printType = (char)type;
 		
 		return 1;
 	}
@@ -460,8 +458,7 @@ public:
 		fwscanf_s(fp,L"%u",&len);
 		for (i=0;i<len;i++)
 		{
-			pi.type = (char)getc(fp);
-			pi.infoName = pageSizes[pi.type].sizeName;
+			pi.printType = (char)getc(fp);
 			pageInfos.push_back(pi);
 		}
 		fclose(fp);
@@ -483,7 +480,7 @@ public:
 		fwprintf_s(fp,L"%u",pageInfos.size());
 		for (i=0;i< pageInfos.size();i++)   //页码从1开始 到size-1,数据从0开始 到size-1
 		{
-			fputc(pageInfos[i].type,fp);
+			fputc(pageInfos[i].printType,fp);
 		}
 		fclose(fp);
 		return 1;
@@ -498,7 +495,7 @@ public:
 		}
 		for (i = 1;i < pageInfos.size(); i++)
 		{
-			j = pageInfos[i].type;
+			j = pageInfos[i].printType;
 			pageRanges[j]->set(i,1);
 		}
 		for (i = 0;i<pageRanges.Size();i++)
@@ -509,6 +506,11 @@ public:
 	int getPrintPagesCount()
 	{
 		return pageInfos.size() -1;
+	}
+	void DefaultPrintType()
+	{
+		for (size_t i = 1; i < pageInfos.size();i++ )
+			pageInfos[i].printType = pageInfos[i].rawType;
 	}
 	void generatePageInfo()  //与PDF相关函数
 	{
@@ -521,27 +523,51 @@ public:
 		for (i=1;i<=dm->PageCount();i++ )
 		{
 			j = getPageTypeFromPDF(i,dm);
-			pageInfos[i].type = (char)j;
-			pageInfos[i].infoName = pageSizes[j].sizeName;
+			pageInfos[i].rawType = (char)j;
 		}
 	}
 
 private:
-
 	void addDefaultPageSize()
 	{
 		pan_PageSize ps;
-		ps.a = 29.7;
-		ps.b = 42;
+		ps.a = 0;
+		ps.b = 0;
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"其他");
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"other");
+		addPageSize(ps);
+
+		ps.a = 42;
+		ps.b = 29.7;
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3黑白");
 		addPageSize(ps);
 		ps.a = 21;
 		ps.b = 29.7;
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A4");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A4黑白");
 		addPageSize(ps);
 		ps.a = 14.8;
 		ps.b = 21;
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A5");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A5黑白");
+		addPageSize(ps);
+
+
+		ps.a = 42;
+		ps.b = 29.7;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3彩色");
+		addPageSize(ps);
+		ps.a = 21;
+		ps.b = 29.7;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A4");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A4彩色");
+		addPageSize(ps);
+		ps.a = 14.8;
+		ps.b = 21;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A5");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A5彩色");
 		addPageSize(ps);
 	}
 
@@ -563,7 +589,6 @@ private:
 		return 0;
 	}
 
-	
 	void loadPrinters()
 	{
 		size_t i;
@@ -951,28 +976,44 @@ static void extendStr(WCHAR * str,unsigned int len)
 	}
 }
 
+#define  showListItemCode \
+swprintf_s(str,_countof(str),L" 第 %d",page); \
+extendStr(str,7); \
+len = wcslen(str); \
+swprintf_s(str+len,_countof(str)-len,L"页          %s：",psr.sizeName); \
+extendStr(str,23); \
+len = wcslen(str); \
+swprintf_s(str+len,_countof(str)-len,L"%0.2lf x %0.2lf",psr.a,psr.b); \
+extendStr(str,55); \
+len = wcslen(str); \
+swprintf_s(str+len,_countof(str)-len,L"%s",ps.typeName); 
 
 static void addPage(int page,HWND hDlg)
 {
 	unsigned int type;
-	pan_PageSize ps;
-	wchar_t title[100];
+	pan_PageSize ps,psr;
+	wchar_t str[100];
 	int len;
 	HWND list = GetDlgItem(hDlg,IDC_LIST2);
-	type = printContext->getPageType(page);
+	type = printContext->getPagePrintType(page);
 	ps = printContext->pageSizes[type];
+	type = printContext->getPageRawType(page);
+	psr = printContext->pageSizes[type];
+	
+	showListItemCode
 
-
-	swprintf_s(title,_countof(title),L" 第 %d",page);
-	extendStr(title,7);
-	len = wcslen(title);
-	swprintf_s(title+len,_countof(title)-len,L"页          %s",ps.sizeName);
-	extendStr(title,35);
-	len = wcslen(title);
-	swprintf_s(title+len,_countof(title)-len,L"%0.2lf  x  %0.2lf",ps.a,ps.b);
-
-	ListBox_AppendString_NoSort(list,title);
+	ListBox_AppendString_NoSort(list,str);
 }
+
+void showGroupText(HWND hDlg,int page)
+{
+	wchar_t str[100];
+	int printType = printContext->getPagePrintType(page);
+	swprintf_s(str,_countof(str),L"第%d页打印信息",page);
+	SetDlgItemText(hDlg,IDC_GROUP_TEXT,str);
+	SetDlgItemText(hDlg,IDC_PRINTER_TEXT,printContext->printers[printType]->printerName);
+}
+
 static void showPageList(HWND hDlg)
 {
 	int i;
@@ -983,9 +1024,35 @@ static void showPageList(HWND hDlg)
 		addPage(i,hDlg);
 	}
 	SendDlgItemMessage(hDlg, IDC_LIST2, LB_SETCURSEL, 0, 0);
-	i = printContext->getPageType(1);
+	i = printContext->getPagePrintType(1);
 	SendDlgItemMessage(hDlg, IDC_COMBO1, CB_SETCURSEL, i , 0);
-	SetDlgItemText(hDlg,IDC_PRINTER_TEXT,printContext->printers[0]->printerName);
+
+	showGroupText(hDlg,1);
+}
+static void OnChangePage(HWND hDlg)
+{
+	int newType,page = 0;
+	int len;
+	page = ListBox_GetCurSel(GetDlgItem(hDlg, IDC_LIST2))+1;
+	newType = SendDlgItemMessage(hDlg, IDC_COMBO1, CB_GETCURSEL, 0, 0);
+	printContext->setPagePrintType(page,newType);
+
+	wchar_t str[100];
+	pan_PageSize ps = printContext->pageSizes[newType];
+	int rawType = printContext->getPageRawType(page);
+	pan_PageSize psr = printContext->pageSizes[rawType];
+
+	showListItemCode
+
+	wchar_t *printerName = printContext->printers[newType]->printerName;
+	SetDlgItemText(hDlg,IDC_PRINTER_TEXT,printerName);
+
+	HWND listHwnd = GetDlgItem(hDlg,IDC_LIST2);
+	ListBox_DeleteString(listHwnd,page - 1);
+	ListBox_InsertString(listHwnd,page - 1,str);
+	ListBox_SetCurSel(listHwnd,page - 1);
+	SetDlgItemText(hDlg,IDC_ALTER_TEXT,L"修改成功。");
+
 }
 
 static void showTypeCombo(HWND hDlg)
@@ -997,8 +1064,8 @@ static void showTypeCombo(HWND hDlg)
 	for (unsigned i = 0; i< sizeNum;i++ )
 	{
 		memset(str,0,sizeof(str));
-		wcscat_s(str,printContext->pageSizes[i].sizeName);
-		extendStr(str,10);
+		wcscat_s(str,printContext->pageSizes[i].typeName);
+		extendStr(str,6);
 		len = wcslen(str);
 		swprintf_s(str+len,_countof(str) - len,L"%0.2lf x %0.2lf",printContext->pageSizes[i].a,printContext->pageSizes[i].b);
 		SendDlgItemMessage(hDlg, IDC_COMBO1, CB_INSERTSTRING, (WPARAM)-1, (LPARAM)str);
@@ -1012,36 +1079,7 @@ static void OnDlgInit(HWND hDlg)
 	showPageList(hDlg);
 }
 
-static void OnChangePage(HWND hDlg)
-{
-	int newType,page = 0;
-	int len;
-	page = ListBox_GetCurSel(GetDlgItem(hDlg, IDC_LIST2))+1;
-	newType = SendDlgItemMessage(hDlg, IDC_COMBO1, CB_GETCURSEL, 0, 0);
-	printContext->setPageType(page,newType);
 
-	wchar_t title[100];
-	pan_PageSize ps = printContext->pageSizes[newType];
-
-	swprintf_s(title,_countof(title),L" 第 %d",page);
-	extendStr(title,7);
-	len = wcslen(title);
-	swprintf_s(title+len,_countof(title)-len,L"页          %s",ps.sizeName);
-	extendStr(title,35);
-	len = wcslen(title);
-	swprintf_s(title+len,_countof(title)-len,L"%0.2lf  x  %0.2lf",ps.a,ps.b);
-
-
-	wchar_t *printerName = printContext->printers[newType]->printerName;
-	SetDlgItemText(hDlg,IDC_PRINTER_TEXT,printerName);
-
-	HWND listHwnd = GetDlgItem(hDlg,IDC_LIST2);
-	ListBox_DeleteString(listHwnd,page - 1);
-	ListBox_InsertString(listHwnd,page - 1,title);
-	ListBox_SetCurSel(listHwnd,page - 1);
-	SetDlgItemText(hDlg,IDC_ALTER_TEXT,L"修改成功。");
-	
-}
 static void OnListClick(HWND hDlg)
 {
 	int type;
@@ -1049,10 +1087,10 @@ static void OnListClick(HWND hDlg)
 	int idx;
 	pageList = GetDlgItem(hDlg, IDC_LIST2);
 	idx = ListBox_GetCurSel(pageList);
-	type = printContext->getPageType(idx+1);
+	type = printContext->getPagePrintType(idx+1);
 	SendDlgItemMessage(hDlg, IDC_COMBO1, CB_SETCURSEL, type , 0);
 	SetDlgItemText(hDlg,IDC_ALTER_TEXT,L"");
-	SetDlgItemText(hDlg,IDC_PRINTER_TEXT,printContext->printers[type]->printerName);
+	showGroupText(hDlg,idx+1);
 }
 void pan_showPDF(int page);
 static void OnListDoubleClick(HWND hDlg)
@@ -1062,11 +1100,6 @@ static void OnListDoubleClick(HWND hDlg)
 	pageList = GetDlgItem(hDlg, IDC_LIST2);
 	page = ListBox_GetCurSel(pageList)+1;
 	pan_showPDF(page);
-}
-void pan_DoPrint();
-static void OnOK(HWND)
-{
-	pan_DoPrint();
 }
 
 static void OnSetting(HWND hDlg)
@@ -1085,6 +1118,7 @@ static void OnSavePage(HWND hDlg)
 	GetCurrentDirectory(sizeof(curDir),curDir);
 	ofn.lpstrInitialDir = curDir;
 	ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST;
+	//ofn.lpstrDefExt = pan_win->loadedFilePath;
 	ofn.lpstrFilter = L"页配置文件(*.ppag)\0*.ppag\0所有文件(*.*)\0*.*\0\0";
 	if(GetSaveFileName(&ofn) == 0)
 		return;
@@ -1108,12 +1142,16 @@ static void OnLoadPage(HWND hDlg)
 	if(GetOpenFileName(&ofn) == 0)
 		return;
 	printContext->loadPageSizeAndPageInfo(filePath);
+	if (printContext->getPrintPagesCount() != pan_win->dm->PageCount())
+	{
+		MessageBox(hDlg,L"配置文件与PDF文档不匹配",L"注意",0);
+	}
 	showPageList(hDlg);
 }
 
 static void OnDefaultPage(HWND hDlg)
 {
-	printContext->generatePageInfo();
+	printContext->DefaultPrintType();
 	showPageList(hDlg);
 }
 
@@ -1124,8 +1162,14 @@ static void OnClose(HWND hDlg)
 	printContext = NULL;
 	pan_printDlgHwnd = NULL;
 }
-
-
+int pan_DoPrint(HWND);
+static void OnOK(HWND hDlg)
+{
+	if(pan_DoPrint(hDlg))
+	{
+		OnClose(hDlg);
+	}
+}
  static INT_PTR CALLBACK pan_PrintDlgProc(HWND hDlg,UINT msg, WPARAM wParam,LPARAM lParam )
 {
 	WindowInfo *win = pan_win;
@@ -1144,7 +1188,6 @@ static void OnClose(HWND hDlg)
 		{
 		case IDOK:
 			OnOK(hDlg);
-			OnClose(hDlg);
 			break;
 		case IDCANCEL:
 			OnClose(hDlg);
@@ -1216,37 +1259,34 @@ PrintData * pan_CreatePrintData(pan_Printer * printer,pan_PageRange *pageRange,W
 }
 
 
-void pan_DoPrint()
+int pan_DoPrint(HWND hDlg)
 {
 	WindowInfo * win = pan_win;
 	if(gisPrinting)
 	{
-		MessageBoxW(win->hwndFrame,L"正在打印,请稍后再试",L"提示",0);
-		return ;
+		MessageBox(hDlg,L"正在打印,请稍后再试",L"提示",0);
+		return 0;
 	}
-	if (!HasPermission(Perm_PrinterAccess)) return;
+	if (printContext->getPrintPagesCount() != pan_win->dm->PageCount())
+	{
+		MessageBox(hDlg,L"配置文件与PDF文档不匹配，不能打印",L"注意",0);
+		return 0;
+	}
+	if (!HasPermission(Perm_PrinterAccess)) return 0;
 	DisplayModel *dm = win->dm;
 	assert(dm);
-	if (!dm) return;
+	if (!dm) return 0;
 	if (!dm->engine)
-		return;
+		return 0;
 #ifndef DISABLE_DOCUMENT_RESTRICTIONS
 	if (!dm->engine->AllowsPrinting())
-		return;
+		return 0;
 #endif
 	if (win->IsChm()) {
 		win->dm->AsChmEngine()->PrintCurrentPage();
-		return;
+		return 0;
 	}
-	if (win->printThread) {
-		int res = MessageBox(win->hwndFrame, 
-			_TR("Printing is still in progress. Abort and start over?"),
-			_TR("Printing in progress."),
-			MB_ICONEXCLAMATION | MB_YESNO | MbRtlReadingMaybe());
-		if (res == IDNO)
-			return;
-	}
-
+	
 	int printerNum = printContext->printers.Size();
 	PrintData ** datas;
 	datas = new PrintData *[printerNum];
@@ -1270,6 +1310,7 @@ void pan_DoPrint()
 
 	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
 	CloseHandle(hwnd);
+	return 1;
 }
 void pan_showPDF(int page)
 {
@@ -1289,7 +1330,7 @@ static void addSize_ps(int i,HWND hDlg)
 	wchar_t *sizeName, *printerName;
 	HWND list = GetDlgItem(hDlg,IDC_PS_LIST);
 	int len;
-	sizeName = printContext->pageSizes[i].sizeName;
+	sizeName = printContext->pageSizes[i].typeName;
 	x = printContext->pageSizes[i].a;
 	y = printContext->pageSizes[i].b;
 	printerName = printContext->printers[i]->printerName;
@@ -1378,7 +1419,7 @@ static int OnAdd_ps(HWND hDlg)
 		MessageBox(hDlg,L"参数错误",L"添加失败",0);
 		return 0;
 	}
-	wcscpy_s(ps.sizeName,name);
+	wcscpy_s(ps.typeName,name);
 	swscanf_s(strx,L"%lf",&x);
 	swscanf_s(stry,L"%lf",&y);
 	ps.a = x;
@@ -1408,7 +1449,7 @@ static int OnModify_ps(HWND hDlg)
 		MessageBox(hDlg,L"参数错误",L"修改失败",0);
 		return 0;
 	}
-	wcscpy_s(ps.sizeName,name);
+	wcscpy_s(ps.typeName,name);
 	swscanf_s(strx,L"%lf",&x);
 	swscanf_s(stry,L"%lf",&y);
 	ps.a = x;
@@ -1434,10 +1475,10 @@ void OnListSelChange_ps(HWND hDlg)
 	ps = printContext->pageSizes[idx];
 	swprintf_s(strx,L"%0.2lf",ps.a);
 	swprintf_s(stry,L"%0.2lf",ps.b);
-	SendDlgItemMessage(hDlg,IDC_PS_NAME,WM_SETTEXT,0,(LPARAM)ps.sizeName);
+	SendDlgItemMessage(hDlg,IDC_PS_NAME,WM_SETTEXT,0,(LPARAM)ps.typeName);
 	SendDlgItemMessage(hDlg,IDC_PS_X,WM_SETTEXT,0,(LPARAM)strx);
 	SendDlgItemMessage(hDlg,IDC_PS_Y,WM_SETTEXT,0,(LPARAM)stry);
-	if(idx<4)
+	if(idx<7)
 		EnableWindow(GetDlgItem(hDlg,IDC_PS_MODIFY),FALSE);
 	else
 		EnableWindow(GetDlgItem(hDlg,IDC_PS_MODIFY),TRUE);
