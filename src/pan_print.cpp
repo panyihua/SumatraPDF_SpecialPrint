@@ -139,7 +139,6 @@ public:
 		free(printerInfo.pPortName);
 		free(pDevMode);
 		free(filePath);
-		
 	}
 	int loadPrinterFromPd(PRINTDLGEX & pd)
 	{
@@ -336,6 +335,8 @@ class pan_PageInfo
 public:
 	char printType;
 	char rawType;
+	double a;
+	double b;
 };
 class pan_PrintContext
 {
@@ -345,18 +346,15 @@ public:
 	Vec<pan_PageSize> pageSizes;
 	Vec<pan_Printer*> printers;
 	std::vector<pan_PageInfo> pageInfos;  //Vec不支持resize，用vector， 1 based
-	int isInit;
+	int isInitted;
 	int isPrinting;
-	pan_PrintContext()
-	{
-		isPrinting = 0;
-		isInit = 0;
-	}
+	pan_PrintContext():isPrinting(0),isInitted(0)
+	{}
 	void init()
 	{
-		if(isInit == 1)
+		if(isInitted == 1)
 			return ;
-		isInit = 1;
+		isInitted = 1;
 		addDefaultPageSize();
 		generatePageInfo();
 		DefaultPrintType();
@@ -458,7 +456,7 @@ public:
 		fwscanf_s(fp,L"%u",&len);
 		for (i=0;i<len;i++)
 		{
-			pi.printType = (char)getc(fp);
+			fread(&pi,sizeof(pan_PageInfo),1,fp);
 			pageInfos.push_back(pi);
 		}
 		fclose(fp);
@@ -480,7 +478,7 @@ public:
 		fwprintf_s(fp,L"%u",pageInfos.size());
 		for (i=0;i< pageInfos.size();i++)   //页码从1开始 到size-1,数据从0开始 到size-1
 		{
-			fputc(pageInfos[i].printType,fp);
+			fwrite(&pageInfos[i],sizeof(pan_PageInfo),1,fp);
 		}
 		fclose(fp);
 		return 1;
@@ -512,18 +510,17 @@ public:
 		for (size_t i = 1; i < pageInfos.size();i++ )
 			pageInfos[i].printType = pageInfos[i].rawType;
 	}
-	void generatePageInfo()  //与PDF相关函数
+	void generatePageInfo()  //与sumatraPDF相关函数
 	{
 		if(pan_win == NULL)
 			return;         //出错
 		DisplayModel * dm = pan_win->dm;
-		int i,j;
+		int i;
 		pageInfos.clear();
 		pageInfos.resize(dm->PageCount() + 1);
 		for (i=1;i<=dm->PageCount();i++ )
 		{
-			j = getPageTypeFromPDF(i,dm);
-			pageInfos[i].rawType = (char)j;
+			getPageInfoFromPDF(i,pageInfos[i],dm);
 		}
 	}
 
@@ -542,51 +539,63 @@ private:
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3");
 		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3黑白");
 		addPageSize(ps);
-		ps.a = 21;
-		ps.b = 29.7;
-		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A4");
-		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A4黑白");
-		addPageSize(ps);
-		ps.a = 14.8;
-		ps.b = 21;
-		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A5");
-		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A5黑白");
-		addPageSize(ps);
-
-
 		ps.a = 42;
 		ps.b = 29.7;
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3");
 		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3彩色");
 		addPageSize(ps);
-		ps.a = 21;
-		ps.b = 29.7;
+
+		ps.b = 21;
+		ps.a = 29.7;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A4");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A4黑白");
+		addPageSize(ps);
+		ps.b = 21;
+		ps.a = 29.7;
 		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A4");
 		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A4彩色");
 		addPageSize(ps);
-		ps.a = 14.8;
-		ps.b = 21;
-		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A5");
-		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A5彩色");
+
+
+		ps.a = 42;
+		ps.b = 0;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3加长");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3加长黑白");
+		addPageSize(ps);		
+		ps.a = 42;
+		ps.b = 0;
+		wcscpy_s(ps.sizeName,_countof(ps.sizeName),L"A3加长");
+		wcscpy_s(ps.typeName,_countof(ps.typeName),L"A3加长彩色");
 		addPageSize(ps);
+
 	}
 
-	int getPageTypeFromPDF(int num,DisplayModel * dm)
+	void getPageInfoFromPDF(int page,pan_PageInfo &pi,DisplayModel * dm)
 	{
-		WCHAR * sizeStr;
 		double a,b;
 		double jd = 2;
 		unsigned int i;
-		sizeStr = getPageSize(dm->engine,num,dm->Rotation());
+		WCHAR * sizeStr;
+		sizeStr = getPageSize(dm->engine,page,dm->Rotation());
 		swscanf_s(sizeStr,L"%lf%lf",&a,&b,wcslen(sizeStr));
 		free(sizeStr);
-
+		pi.a = a;
+		pi.b = b;
 		for (i=1;i<pageSizes.Size();i++)
 		{
 			if(abs(a - pageSizes[i].a) < jd && abs(b - pageSizes[i].b) < jd)
-				return i;
+			{
+				pi.rawType = (char)i;
+				return;
+			}
 		}
-		return 0;
+		if(abs(b - 29.7) < jd)            // A3加长特殊处理
+		{
+			pi.rawType = 5;
+			return;
+		}
+		pi.rawType = 0;
+		return;
 	}
 
 	void loadPrinters()
@@ -921,12 +930,8 @@ public:
 	WindowInfo *win;
 	PrintData **data;
 	int len;
-	PrintingControlThreadData()
-	{
-		win = NULL;
-		data = NULL;
-		len = 0;
-	}
+	PrintingControlThreadData():win(NULL),data(NULL),len(0)
+	{}
 	~PrintingControlThreadData()
 	{
 		delete [] data;
@@ -934,7 +939,7 @@ public:
 };
 
 static int gisPrinting = 0;
-static DWORD WINAPI PrinttingControlThread(LPVOID inData)
+static DWORD WINAPI pan_PrinttingControlThread(LPVOID inData)
 {
 	gisPrinting = 1;
 	PrintingControlThreadData *treadData = (PrintingControlThreadData*) inData;
@@ -942,8 +947,7 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	PrintData **data = treadData->data;
 	int len = treadData->len;
 	pan_PrintMutex = CreateSemaphore(NULL,1,1,NULL);
-	int i;
-	for (i = 0;i<len;i++)
+	for (int i = 0;i<len;i++)
 	{
 		WaitForSingleObject(pan_PrintMutex,INFINITE);
 		if(data[i] ==NULL)
@@ -961,6 +965,10 @@ static DWORD WINAPI PrinttingControlThread(LPVOID inData)
 	gisPrinting = 0;
 	return 0;
 }
+
+///////////////////////////////
+//UI code below
+///////////////////////////////
 
 static void extendStr(WCHAR * str,unsigned int len)
 {
@@ -983,7 +991,7 @@ len = wcslen(str); \
 swprintf_s(str+len,_countof(str)-len,L"页          %s：",psr.sizeName); \
 extendStr(str,23); \
 len = wcslen(str); \
-swprintf_s(str+len,_countof(str)-len,L"%0.2lf x %0.2lf",psr.a,psr.b); \
+swprintf_s(str+len,_countof(str)-len,L"%0.2lf x %0.2lf",printContext->pageInfos[page].a,printContext->pageInfos[page].b); \
 extendStr(str,55); \
 len = wcslen(str); \
 swprintf_s(str+len,_countof(str)-len,L"%s",ps.typeName); 
@@ -1250,11 +1258,16 @@ void pan_PrintDlg(WindowInfo *win)
 	CloseHandle(hwnd);
 }
 
-PrintData * pan_CreatePrintData(pan_Printer * printer,pan_PageRange *pageRange,WindowInfo *win)
+PrintData * pan_CreatePrintData(const pan_PageSize& pageSize,pan_Printer * printer,pan_PageRange *pageRange,WindowInfo *win)
 {
-	Print_Advanced_Data advanced(PrintRangeAll, PrintScaleShrink, false);
+	Print_Advanced_Data advanced(PrintRangeAll, PrintScaleFit, false);
+	int rotation;
+	if(pageSize.a > pageSize.b)
+		rotation = 90;
+	else
+		rotation = 0;
 	PrintData *data = new PrintData(win->dm->engine, &(printer->printerInfo), printer->pDevMode, 
-		pageRange->ppr, advanced, win->dm->Rotation(), NULL);
+		pageRange->ppr, advanced,rotation, NULL);
 	return data;
 }
 
@@ -1296,7 +1309,7 @@ int pan_DoPrint(HWND hDlg)
 	for (int i = 0;i<printerNum;i++)
 	{
 		if(printContext->isReady(i))
-			datas[i] = pan_CreatePrintData(printContext->printers[i],printContext->pageRanges[i],win);
+			datas[i] = pan_CreatePrintData(printContext->pageSizes[i],printContext->printers[i],printContext->pageRanges[i],win);
 		else
 			datas[i] = NULL;
 	}
@@ -1308,7 +1321,7 @@ int pan_DoPrint(HWND hDlg)
 	threadData->len = printerNum;
 
 
-	HANDLE hwnd = CreateThread(NULL, 0, PrinttingControlThread, threadData, 0, NULL);
+	HANDLE hwnd = CreateThread(NULL, 0, pan_PrinttingControlThread, threadData, 0, NULL);
 	CloseHandle(hwnd);
 	return 1;
 }
@@ -1321,6 +1334,8 @@ void pan_showPDF(int page)
 		SetForegroundWindow(win->hwndFrame);
 	}
 }
+
+////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////
 static void addSize_ps(int i,HWND hDlg)

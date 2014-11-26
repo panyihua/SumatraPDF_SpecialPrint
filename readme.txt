@@ -1,3 +1,6 @@
+SumatraPDF_SpecialPrint is fork from SumatraPDF. The original print.cpp  has 
+been took place by the pan_print.cpp.
+
 SumatraPDF is a multi-format (PDF, EPUB, MOBI, FB2, CHM, XPS, DjVu) reader
 for Windows under GPLv3 license, with some code under BSD license.
 
