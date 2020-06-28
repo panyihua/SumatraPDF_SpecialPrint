@@ -8,5 +8,11 @@ pipeline {
       }
     }
 
+    stage('curl') {
+      steps {
+        sh 'curl www.baidu.com'
+      }
+    }
+
   }
 }
